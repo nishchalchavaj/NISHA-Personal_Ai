@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nisha-assistant"
+version = "0.1.0"
+description = "An independent, local-first personal assistant"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "httpx>=0.28,<0.29", "pydantic>=2.11,<3", "PyYAML>=6,<7",
+  "python-dotenv>=1,<2", "fastapi>=0.115,<1", "uvicorn>=0.34,<1",
+  "Send2Trash>=1.8,<2", "python-docx>=1.2,<2", "pypdf>=6,<7", "segno>=1.6,<2",
+  "pywin32>=311; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+gateway = ["litellm[proxy]>=1.80,<2"]
+desktop = ["PySide6>=6.8,<7", "Pillow>=11,<13", "numpy>=1.26,<2", "opencv-contrib-python==4.11.0.86", "mediapipe==0.10.21", "pyautogui>=0.9.54,<1", "pywin32>=311; sys_platform == 'win32'", "pywinauto>=0.6.9,<0.7; sys_platform == 'win32'", "psutil>=7,<8"]
+voice = ["faster-whisper>=1.1,<2", "sounddevice>=0.5,<1", "numpy>=1.26,<2", "pyttsx3>=2.98,<3"]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+
+[project.scripts]
+nisha = "nisha.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["nisha*"]
+
+[tool.setuptools.package-data]
+"nisha.ui" = ["assets/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+

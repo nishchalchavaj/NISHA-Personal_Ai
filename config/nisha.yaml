@@ -1,0 +1,50 @@
+# One source of truth. The LiteLLM server config is generated from this file.
+gateway_url: http://127.0.0.1:4000
+ollama_url: http://127.0.0.1:11434
+data_dir: data
+request_timeout: 90
+recent_exchanges: 6
+external_tasks_enabled: false
+history_retention_days: 30
+models:
+  local_fast:
+    model: ollama_chat/llama3.2
+    local: true
+    context_window: 8192
+    max_output: 256
+  local_smart:
+    model: ollama_chat/qwen3:14b
+    local: true
+    context_window: 8192
+    max_output: 512
+# NISHA's base conversation always uses local models. External task workers are disabled.
+voice:
+  model: data/models/speech-large-v3
+  device: cuda
+  compute_type: int8_float16
+  sample_rate: 16000
+  record_seconds: 6
+  microphone: null
+  auto_microphone: false  # Follow the Windows default input; no priority switching.
+  rate: 175
+  voice_locale: en-US  # Use the earlier English female Windows voice.
+  continuous_listening: true
+  wake_word: nisha
+  wake_aliases: [nisha, neesha, nishaa, nisa, meesha, "निशा"]
+  follow_up_seconds: 120
+  language: en
+  beam_size: 8
+  use_speech_vad: true
+  vad_threshold: 0.45
+  silence_seconds: 1.0
+  max_utterance_seconds: 30
+  speech_threshold: 0.004
+# Local aliases: add real recipient addresses and installed executable paths here.
+contacts: {}
+apps: {}
+# Only public topic terms are used for image lookup; local reference queries stay local.
+online_visuals: true
+vision_model: moondream
+idle_checkins: true
+idle_checkin_seconds: 300
+
