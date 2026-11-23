@@ -198,3 +198,30 @@ or modification becomes part of the project.
 - [Qt system tray](https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QSystemTrayIcon.html)
 - [Qt local sockets](https://doc.qt.io/qt-6/qlocalsocket.html)
 
+## Candidate coding and self-improvement
+
+`nisha.coding.ProjectCodingAgent` inspects only configured projects and creates review-only
+unified diffs. `nisha.versioning.CandidateManager` requires tracked source changes to be
+committed, creates a `codex/experiment-*` branch and linked worktree, checks and applies
+the saved patch there, refuses test-suite and test/lint-configuration changes, records
+baseline commit/branch and selected paths, and compares
+fixed pytest/Ruff suites on both checkouts. It never executes model-generated commands.
+The fixed-suite benchmark records pass/fail and elapsed time and applies a 10% latency
+per-suite regression guard when that baseline suite passes and takes at least one second.
+Sub-second command timing is reported but not gated because process-launch noise dominates.
+
+`nisha.improvement.ImprovementRunner` performs up to three distinct proposal/verify/
+benchmark attempts within a 30-minute cap, includes failure evidence in retries, and
+stops at review. Promotion and rollback require separate authenticated API
+requests with explicit boolean approval and exact confirmation words. Promotion is a
+fast-forward from the candidate branch only while the original branch and commit are
+unchanged. Rollback uses `git revert` and refuses to rewrite history or proceed after a
+later stable-branch change. Per-repository state and experiment manifests are persisted
+under `data/experiments/`; interrupted operations are reconciled at startup without
+rewriting source files.
+
+`nisha.diagnostics.Diagnostics` produces evidence-linked local source search, bounded
+failure receipts, outcome counts, slow-command records and optional psutil process/system
+CPU and memory snapshots. It does not invent causes. The research endpoint searches
+configured local source and documentation only; web search remains on the existing
+browser/search adapters.

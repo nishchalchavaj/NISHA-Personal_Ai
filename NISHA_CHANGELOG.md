@@ -24,3 +24,11 @@
 - **Tests:** Full suite: 798 passed, 2 warnings in 188.12s. Final coding/API tests: 18 passed, including pass/fail/timeout and auth. Ruff and `git diff --check` passed.
 - **Result:** Diff proposals remain unapplied until an isolated Git candidate exists; failed and timed-out commands return nonzero receipts; private source values are redacted from model context and response.
 - **Known limits:** Project tests run as the signed-in Windows user, not in an OS sandbox. Only pytest/Ruff are exposed; general PowerShell/CMD execution is not implemented yet.
+
+## 2026-11-24 — Phases 6–12 controlled candidate lifecycle
+
+- **Changed:** Added proposal metadata, isolated Git candidate worktrees, a guard against candidate edits to tests/evaluation configuration, baseline/candidate pytest and Ruff verification, a fixed-suite benchmark with a 10% per-suite latency guard for baseline runs at least one second long, local evidence-based research/debugging, persistent self-analysis, a bounded three-attempt/30-minute improvement controller, explicit approval-gated promotion, commit-based rollback, and startup recovery for interrupted operations. Added authenticated API routes, voice/text routes for local research/debugging and bounded improvement, and architecture/API documentation.
+- **Why:** Continue the specification after the verified Phase 1–5 checkpoint while leaving the stable checkout untouched until human approval.
+- **Tests:** Candidate lifecycle suite: 10 passed in 19.13s; authenticated API suite: 10 passed in 1.62s. Full suite: 811 passed, 2 warnings in 212.90s. Ruff on changed Python files and `git diff --check` passed. CLI help smoke check passed.
+- **Result:** Candidate patches are applied only in a worktree; promotion fast-forwards only the recorded base branch while the base commit is unchanged; rollback uses a revert commit. Candidate results, receipts, benchmark data and per-repository version pointers persist under `data/experiments/`.
+- **Known limits:** Benchmark timings are single-run and should not be treated as statistically stable. Verification code runs under the signed-in account, not an OS sandbox. Local research searches configured source/docs; no new internet research agent or arbitrary terminal executor was added.

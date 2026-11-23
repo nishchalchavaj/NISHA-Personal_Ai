@@ -649,3 +649,40 @@ commands run in an ordered background queue so you can keep talking; completed
 results appear without speaking over the current reply. Say **cancel background
 tasks** to cancel queued work. See [response timing and background work](docs/responsiveness.md)
 for cancellation behavior, approval boundaries and shared-GPU limits.
+
+## Coding candidates and improvement review
+
+NISHA can inspect configured project source, propose a local-model patch, and run fixed
+verification commands. From voice or text, use **"inspect project NAME"**, **"search
+project NAME for TERM"**, **"run the tests in NAME"**, **"lint NAME"**, **"research
+project NAME for TERM"**, **"debug last failure"**, and **"analyze recent failures"**.
+Project research currently searches local source and documentation and returns file/line
+evidence. External research continues to use the existing browser/search adapters when
+requested; `/research` does not fetch the internet.
+
+The authenticated API also exposes `POST /coding/propose`, `POST /coding/candidates`,
+`GET /coding/candidates`, candidate `verify`, `benchmark`, and `reject` routes, `POST
+/coding/improve`, `POST /research`, `POST /debug`, and `GET /diagnostics`. Proposals are
+saved without applying them. Candidate creation requires a clean tracked Git checkout
+and applies the saved diff in a separate worktree. The benchmark runs pytest and Ruff on
+both baseline and candidate, records command receipts and elapsed time, and uses a 10%
+per-suite latency regression threshold when a passing baseline takes at least one second.
+Sub-second timings are recorded but not gated because process-launch noise dominates.
+Failed checks remain recorded.
+
+The improvement action is **"create experimental version of NAME to GOAL using
+FILE1, FILE2"**. Each attempt generates one proposal, creates one isolated candidate,
+verifies it, and benchmarks it. It can try at most three distinct patches within a 30-minute limit,
+feeding captured failures into a retry and stopping if the model repeats a patch. It stops
+at human review; it never promotes automatically. Promotion
+requires an authenticated request with `approved: true` and confirmation `PROMOTE`.
+Rollback requires `approved: true` and confirmation `ROLLBACK`; it creates a Git revert
+commit and refuses when the stable branch has moved. Candidate records and per-repository
+stable-version pointers are stored under `data/experiments/`.
+Candidate patches cannot edit test suites or pytest/Ruff configuration, so they cannot
+weaken their own verification gate.
+
+Fixed tests and lint run with the signed-in Windows account and are time/output bounded;
+they are not an OS sandbox. Do not point NISHA at an untrusted project and expect test
+code to be isolated from the account. Candidate inspection and research do not include
+private files such as `.env`, credentials, keys, databases or oversized source files.

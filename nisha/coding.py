@@ -227,6 +227,19 @@ class ProjectCodingAgent:
         directory.mkdir(parents=True, exist_ok=True)
         patch_path = directory / f"{candidate_id}.patch"
         patch_path.write_text(patch + "\n", encoding="utf-8", newline="\n")
+        metadata_path = directory / f"{candidate_id}.json"
+        metadata = {
+            "candidate_id": candidate_id,
+            "project": project.name,
+            "project_root": str(root),
+            "goal": goal.strip(),
+            "files": sorted(selected_paths),
+            "created_at": datetime.now(UTC).isoformat(),
+            "status": "review_required",
+        }
+        temporary = metadata_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        temporary.replace(metadata_path)
         if self.store:
             self.store.audit("coding_proposal", "review_required")
         return {
@@ -234,6 +247,7 @@ class ProjectCodingAgent:
             "status": "review_required",
             "project": project.name,
             "patch_path": str(patch_path),
+            "metadata_path": str(metadata_path),
             "patch": patch,
             "applied": False,
             "tests_run": False,
@@ -270,6 +284,19 @@ class ProjectCodingAgent:
         if suite not in {"pytest", "ruff"}:
             raise NishaError("Choose the supported 'pytest' or 'ruff' verification suite.")
         _, root = self._project(project_name)
+        module = "pytest" if suite == "pytest" else "ruff"
+        argv = (sys.executable, "-m", module, "-q") if suite == "pytest" else (
+            sys.executable, "-m", module, "check", "."
+        )
+        return self._run(argv, root, suite)
+
+    def verify_at(self, root, suite="pytest"):
+        """Run only a fixed verification suite at a manager-selected candidate root."""
+        root = Path(root).resolve()
+        if not root.is_dir():
+            raise NishaError("The candidate working directory is unavailable.")
+        if suite not in {"pytest", "ruff"}:
+            raise NishaError("Choose the supported 'pytest' or 'ruff' verification suite.")
         module = "pytest" if suite == "pytest" else "ruff"
         argv = (sys.executable, "-m", module, "-q") if suite == "pytest" else (
             sys.executable, "-m", module, "check", "."

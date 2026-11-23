@@ -60,10 +60,52 @@ class CodingProposalRequest(BaseModel):
     model: str = "auto"
 
 
+class ImprovementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project: str = Field(min_length=1, max_length=80)
+    goal: str = Field(min_length=1, max_length=4000)
+    files: list[str] = Field(min_length=1, max_length=8)
+    session_id: str = Field(min_length=1, max_length=100)
+    model: str = "auto"
+
+
 class CodingVerifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project: str = Field(min_length=1, max_length=80)
     suite: Literal["pytest", "ruff"] = "pytest"
+
+
+class CandidateCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    proposal_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class CandidateVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    suite: Literal["pytest", "ruff"] = "pytest"
+
+
+class CandidateRejectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class CandidateApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    approved: bool
+    confirmation: Literal["PROMOTE", "ROLLBACK"]
+
+
+class ResearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project: str = Field(min_length=1, max_length=80)
+    query: str = Field(min_length=2, max_length=500)
+
+
+class DebugRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project: str | None = Field(default=None, max_length=80)
+    query: str | None = Field(default=None, max_length=500)
 
 
 def create_app(settings, core=None):
@@ -170,12 +212,94 @@ def create_app(settings, core=None):
         except (NishaError, ValueError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.post("/coding/improve")
+    def run_improvement(request: ImprovementRequest):
+        try:
+            return instance.improvement.run(
+                request.goal,
+                request.project,
+                request.files,
+                instance,
+                request.session_id,
+                request.model,
+            )
+        except (NishaError, OSError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post("/coding/verify")
     def verify_project(request: CodingVerifyRequest):
         try:
             return instance.coding.verify(request.project, request.suite)
         except (NishaError, OSError) as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/coding/candidates")
+    def create_candidate(request: CandidateCreateRequest):
+        try:
+            return instance.candidates.create(request.proposal_id)
+        except (NishaError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/coding/candidates")
+    def list_candidates():
+        return {"candidates": instance.candidates.list()}
+
+    @app.post("/coding/candidates/{experiment_id}/verify")
+    def verify_candidate(experiment_id: str, request: CandidateVerifyRequest):
+        try:
+            return instance.candidates.verify(experiment_id, request.suite)
+        except (NishaError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/coding/candidates/{experiment_id}/reject")
+    def reject_candidate(experiment_id: str, request: CandidateRejectRequest):
+        try:
+            return instance.candidates.reject(experiment_id, request.reason)
+        except (NishaError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/coding/candidates/{experiment_id}/promote")
+    def promote_candidate(experiment_id: str, request: CandidateApprovalRequest):
+        try:
+            return instance.candidates.promote(
+                experiment_id, request.approved, request.confirmation
+            )
+        except (NishaError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/coding/candidates/{experiment_id}/rollback")
+    def rollback_candidate(experiment_id: str, request: CandidateApprovalRequest):
+        try:
+            return instance.candidates.rollback(
+                experiment_id, request.approved, request.confirmation
+            )
+        except (NishaError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/coding/candidates/{experiment_id}/benchmark")
+    def benchmark_candidate(experiment_id: str):
+        try:
+            return instance.candidates.benchmark(experiment_id)
+        except (NishaError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/research")
+    def research(request: ResearchRequest):
+        try:
+            return instance.diagnostics.research(request.project, request.query)
+        except NishaError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/debug")
+    def debug(request: DebugRequest):
+        try:
+            return instance.diagnostics.debug(request.project, request.query)
+        except NishaError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/diagnostics")
+    def diagnostics():
+        return instance.diagnostics.analyze()
 
     @app.post("/tools/propose")
     def propose(request: ToolRequest):

@@ -61,6 +61,8 @@ def test_api_requires_auth_and_enforces_cloud_policy(core, monkeypatch):
     assert client.get("/memories").status_code == 401
     assert client.get("/tools").status_code == 401
     assert client.get("/projects").status_code == 401
+    assert client.get("/coding/candidates").status_code == 401
+    assert client.get("/diagnostics").status_code == 401
     assert client.post("/computer/screen", json={}).status_code == 401
     client.headers["Authorization"] = "Bearer test-token"
     project = core.settings.data_dir / "configured-project"
@@ -75,6 +77,14 @@ def test_api_requires_auth_and_enforces_cloud_policy(core, monkeypatch):
         )
     )
     assert client.get("/projects").json()["projects"][0]["name"] == "API project"
+    assert client.get("/coding/candidates").json() == {"candidates": []}
+    assert client.get("/diagnostics").status_code == 200
+    approval = client.post(
+        "/coding/candidates/00000000000000000000000000000000/promote",
+        json={"approved": False, "confirmation": "PROMOTE"},
+    )
+    assert approval.status_code == 400
+    assert "explicit approval" in approval.json()["detail"]
     inspect = client.post("/coding/inspect", json={"project": "API project"})
     assert inspect.status_code == 200 and "main.py" in inspect.json()["files"]
     catalog = client.get("/tools")

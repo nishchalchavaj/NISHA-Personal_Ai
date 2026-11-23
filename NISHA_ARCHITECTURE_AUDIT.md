@@ -45,7 +45,7 @@ Major source areas:
 - General tool invocation/planning from conversational requests. The README explicitly says the model does not yet invoke file tools automatically.
 - Dedicated computer, coding, research, debugging, testing, review, and self-improvement agents with isolated inputs and outputs.
 - General terminal execution with structured receipts (command, working directory, timestamps, exit code, stdout, stderr); no arbitrary terminal execution should be added without a separate policy and approval design.
-- Candidate worktree/version promotion and automatic rollback; benchmark/evaluator pipeline and persistent experiment records.
+- A bounded candidate workflow and local promotion/rollback now exist. Benchmarking is a fixed pytest/Ruff plus elapsed-time comparison, not a statistical performance suite. Broad evaluator coverage and sandboxed test execution remain missing.
 - Persistent continuity files requested by the specification beyond existing `docs/` architecture, roadmap, security, and verification documentation.
 
 ## Problems
@@ -103,18 +103,23 @@ The target preserves local-first conversation, existing clients, user settings, 
 | 3. Reliable tool system | Complete for the existing workspace file tools: an explicit catalog and authenticated discovery endpoint are in place; path limits, approval, audit, and shell refusal remain. |
 | 4. Windows computer control | Complete for the scoped desktop interface. Existing UIA supports named windows/controls, focus, safe text fields, limited shortcuts and scroll; Gesture Studio offers camera-guided pointer/click. Added explicit bounded screen capture/local analysis, named-control right/double click and drag. No general coordinate click API was added because it cannot identify the target or reliably apply the current risk checks. |
 | 5. Coding agent | Complete foundation: configured project listing/search/read with path/size/private-file limits and secret redaction; local model proposes review-only unified diffs; fixed pytest/Ruff commands return bounded structured receipts, record JSONL, timeout and report failures. Patch application awaits Phase 6 isolation. |
-| 6. Git/version management | In progress: implement clean-checkout guards, isolated candidate worktrees, patch validation and retained baseline references. Promotion remains Phase 12. |
-| 7–8. Evaluation and benchmarks | Future phases; establish measurable cases and baseline before candidate comparisons. |
-| 9–12. Research/debugging, analysis, self-improvement, promotion | Future phases; require evidence, candidate isolation, regression/security review, human approval, and rollback. |
+| 6. Git/version management | Complete foundation: clean tracked checkout guard, validated worktree patch application, branch/base recording, per-repository stable pointers, and experiment manifests. |
+| 7. Testing and verification | Complete foundation: fixed pytest/Ruff receipts on baseline and candidate, bounded execution, and result persistence. |
+| 8. Benchmark system | Complete foundation: baseline/candidate pass results and single-run per-suite elapsed-time comparison with a 10% slowdown guard for passing baseline commands at least one second long. Statistical repetitions and broad task-success metrics remain future work. |
+| 9. Research/debugging | Complete local foundation: cited source/documentation search and captured failure inspection. Internet research continues through existing browser/search adapters. |
+| 10. Self-analysis | Complete foundation: coding receipts, audit/outcome counts, slow commands, user observation counts, and optional psutil snapshots; no causal claims are invented. |
+| 11. Controlled self-improvement | Complete bounded workflow: up to three distinct proposals within 30 minutes, isolated candidates, failure-informed retries, verification and benchmark, then stop for review or archive failures. |
+| 12. Promotion/rollback | Complete: explicit authenticated human approval, fast-forward-only promotion from unchanged base, commit-based rollback, and startup metadata recovery. |
 
 ## Verification
 
 **Baseline before implementation:** `.venv\Scripts\python.exe -m pytest -q` completed with **777 passed, 2 failed** in 259.84 seconds. Both failures are in `tests/test_contextual_actions.py` and pass an uncreated `test-session`; `Store.history()` raises `ValueError("Unknown session. Start a new conversation.")` before their action assertions. These are pre-existing baseline failures, recorded for comparison rather than changed as part of this task.
 
-**Post-change verification:** After adding the tool catalog and correcting the two test fixtures to create actual sessions, `.venv\Scripts\python.exe -m pytest -q` completed with **780 passed, 2 warnings** in 230.50 seconds. The affected contextual-action, tool, and API tests completed with **28 passed**. Ruff passed for all changed Python modules and tests; `git diff --check` passed. Warnings are the existing pywinauto COM initialization notice and pypdf `add_js` deprecation warning.
+**Post-change verification:** After Phases 1–5, `.venv\Scripts\python.exe -m pytest -q` completed with **798 passed, 2 warnings**. After Phases 6–12, evaluation-path guard and timing-noise fix, the full suite completed with **811 passed, 2 warnings in 212.90 seconds**. The candidate lifecycle suite completed with **10 passed in 19.13 seconds**, and the authenticated API suite with **10 passed in 1.62 seconds**. Changed-file Ruff and `git diff --check` passed; `python -m nisha --help` completed successfully. The warnings are the existing pywinauto COM initialization notice and pypdf `add_js` deprecation warning.
 
 ## Audit Change Log
 
 - Created this audit before implementation changes, as required by “YOUR FIRST TASK.”
 - Phase 2 review: the repository already uses separate modules for major concerns; no source restructuring is justified by the inspected evidence.
 - Phase 3 added an explicit safe tool catalog and authenticated `GET /tools` discovery; it does not broaden execution permissions.
+- Phases 6–12 added the candidate/testing/benchmark/research/analysis/improvement lifecycle documented above. Candidate lifecycle behavior was exercised in temporary Git repositories; no self-improvement patch was applied to this NISHA checkout.

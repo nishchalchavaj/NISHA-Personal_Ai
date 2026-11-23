@@ -74,8 +74,16 @@ class NishaCore:
         self.system_actions = SystemActions(self.workflows.desktop)
         self.connections = Connections(settings.data_dir)
         from nisha.coding import ProjectCodingAgent
+        from nisha.versioning import CandidateManager
 
         self.coding = ProjectCodingAgent(self.connections, settings.data_dir, self.store)
+        self.candidates = CandidateManager(self.coding, settings.data_dir, self.store)
+        self.startup_recovery = self.candidates.recover_interrupted()
+        from nisha.diagnostics import Diagnostics
+        from nisha.improvement import ImprovementRunner
+
+        self.diagnostics = Diagnostics(self.coding, self.store, settings.data_dir)
+        self.improvement = ImprovementRunner(self.coding, self.candidates, self.store)
         self.devices = Devices(self.connections)
         self.automation = Automation(
             self.connections, self.devices, self.workflows.desktop, settings.data_dir
@@ -340,6 +348,61 @@ class NishaCore:
                 return f"I couldn't analyze the current screen: {exc}"
             self.store.audit("screen_analysis", "completed")
             return result
+        research_request = re.fullmatch(
+            r"(?:please )?research project (.+?) for (.{2,500})",
+            text.strip().strip(".!?"),
+            re.IGNORECASE,
+        )
+        if research_request:
+            try:
+                result = self.diagnostics.research(
+                    research_request[1].strip(), research_request[2].strip()
+                )
+            except NishaError as exc:
+                return f"I couldn't research that project: {exc}"
+            return "Local project evidence:\n" + (
+                "\n".join(
+                    f"{item['path']}:{item['line']}: {item['text']}"
+                    for item in result["evidence"]
+                )
+                or "No matching source or documentation lines found."
+            )
+        if re.fullmatch(r"(?:please )?debug last failure", text.strip().strip(".!?"), re.IGNORECASE):
+            result = self.diagnostics.debug()
+            observations = result["observations"]
+            return "Recent recorded failures:\n" + (
+                "\n".join(item["observation"] for item in observations)
+                or "No failed verification commands are recorded."
+            )
+        if re.fullmatch(r"(?:please )?analyze recent failures", text.strip().strip(".!?"), re.IGNORECASE):
+            result = self.diagnostics.analyze()
+            return (
+                f"Analysis found {len(result['failed_commands'])} failed verification commands "
+                f"and {len(result['slow_commands_over_2_seconds'])} commands over two seconds. "
+                "The report contains observed evidence and no inferred cause."
+            )
+        improvement_request = re.fullmatch(
+            r"(?:please )?create experimental version of (.{1,80}?) to (.{1,4000}) using (.{1,1000})",
+            text.strip().strip(".!?"),
+            re.IGNORECASE,
+        )
+        if improvement_request:
+            files = [item.strip() for item in improvement_request[3].split(",") if item.strip()]
+            try:
+                result = self.improvement.run(
+                    improvement_request[2].strip(),
+                    improvement_request[1].strip(),
+                    files,
+                    self,
+                    session,
+                    alias,
+                )
+            except (NishaError, OSError, ValueError) as exc:
+                return f"I couldn't complete the bounded improvement run: {exc}"
+            return (
+                f"Improvement run {result['status']}; experiment "
+                f"{result['experiment_id']}. It remains isolated until explicit approval."
+            )
         coding_request = re.fullmatch(
             r"(?:please )?(?:run (?:the )?(tests|test suite)|lint)(?: (?:in|for|project) (.+))?",
             text.strip().strip(".!?"),

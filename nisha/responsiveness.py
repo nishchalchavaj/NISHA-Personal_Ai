@@ -44,7 +44,8 @@ def action_request(text):
         return True
     if re.match(
         r"^(?:please )?(?:run (?:the )?(?:tests|test suite)|lint|inspect project|"
-        r"list project files|search project)\b",
+        r"list project files|search project|research project|debug last failure|"
+        r"analyze recent failures|create experimental version)\b",
         normalized,
     ):
         return True
