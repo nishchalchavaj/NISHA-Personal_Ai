@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nisha.api_security import LocalApiBoundary
 from nisha.core import NishaCore
@@ -102,10 +102,41 @@ class ResearchRequest(BaseModel):
     query: str = Field(min_length=2, max_length=500)
 
 
+class WebResearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(min_length=2, max_length=500)
+    session_id: str = Field(min_length=1, max_length=100)
+    model: str = "auto"
+
+
 class DebugRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project: str | None = Field(default=None, max_length=80)
     query: str | None = Field(default=None, max_length=500)
+
+
+class TerminalPrepareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    shell: Literal["powershell", "cmd", "python", "git"]
+    project: str = Field(min_length=1, max_length=80)
+    args: list[str] | None = Field(default=None, max_length=32)
+    script: str | None = Field(default=None, max_length=12000)
+
+    @model_validator(mode="after")
+    def validate_command_kind(self):
+        if (self.args is None) == (self.script is None):
+            raise ValueError("Supply args for Python/Git or script for PowerShell/CMD, not both.")
+        if self.shell in {"powershell", "cmd"} and self.script is None:
+            raise ValueError("PowerShell and CMD require a script.")
+        if self.shell in {"python", "git"} and self.args is None:
+            raise ValueError("Python and Git require an argument list.")
+        return self
+
+
+class TerminalApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    approval_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    approved: bool
 
 
 def create_app(settings, core=None):
@@ -172,6 +203,22 @@ def create_app(settings, core=None):
     @app.get("/tools")
     def list_tools():
         return {"tools": tools.catalog()}
+
+    @app.post("/terminal/prepare")
+    def prepare_terminal(request: TerminalPrepareRequest):
+        try:
+            return instance.terminal.prepare(
+                request.shell, request.project, args=request.args, script=request.script
+            )
+        except (NishaError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/terminal/execute")
+    def execute_terminal(request: TerminalApprovalRequest):
+        try:
+            return instance.terminal.execute(request.approval_id, request.approved)
+        except (NishaError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/computer/screen")
     def analyze_screen(request: ScreenRequest):
@@ -288,6 +335,15 @@ def create_app(settings, core=None):
         try:
             return instance.diagnostics.research(request.project, request.query)
         except NishaError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/research/web")
+    def web_research(request: WebResearchRequest):
+        try:
+            return instance.research_agent.research(
+                request.query, instance, request.session_id, request.model
+            )
+        except (NishaError, ValueError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
     @app.post("/debug")

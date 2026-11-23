@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+import statistics
 import subprocess
 from datetime import UTC, datetime
 from functools import wraps
@@ -34,11 +35,12 @@ def serialized(method):
 
 
 class CandidateManager:
-    def __init__(self, coding, data_dir, store=None):
+    def __init__(self, coding, data_dir, store=None, benchmark_repetitions=3):
         self.coding = coding
         self.data_dir = Path(data_dir).resolve()
         self.store = store
         self._lock = RLock()
+        self.benchmark_repetitions = max(3, min(int(benchmark_repetitions), 5))
         self.experiments_dir = self.data_dir / "experiments"
         self.worktrees_dir = self.experiments_dir / "worktrees"
         self.experiments_dir.mkdir(parents=True, exist_ok=True)
@@ -314,8 +316,8 @@ class CandidateManager:
         return manifest
 
     @serialized
-    def benchmark(self, experiment_id):
-        """Compare fixed test and lint suites on baseline and candidate revisions."""
+    def benchmark(self, experiment_id, max_runtime_seconds=1800):
+        """Compare repeated fixed-suite runs using medians and median absolute deviation."""
         manifest = self._load(experiment_id)
         if manifest["status"] not in {"candidate_applied", "verification_failed", "verification_passed", "benchmark_complete"}:
             raise NishaError("This experiment isn't available for benchmarking.")
@@ -325,29 +327,53 @@ class CandidateManager:
         manifest["run_status"] = "active"
         manifest["operation"] = "benchmark"
         self._write(manifest)
+        max_runtime_seconds = max(1, min(int(max_runtime_seconds), 1800))
+        original_timeout = self.coding.timeout
+        started = monotonic()
+        remaining_commands = 4 * self.benchmark_repetitions
         results = {}
-        for suite in ("pytest", "ruff"):
-            timings = {}
-            receipts = {}
-            for label in ("baseline", "candidate"):
-                def run(selected_suite=suite, selected_label=label):
-                    if selected_label == "baseline":
-                        return self.coding.verify(manifest["project"], selected_suite)
-                    return self.coding.verify_at(candidate_project_root, selected_suite)
-
-                started = monotonic()
-                receipt = run()
-                timings[label] = round(monotonic() - started, 3)
-                receipts[label] = {
-                    **receipt,
-                    "passed": receipt["exit_code"] == 0 and not receipt["timed_out"],
-                    "measured_seconds": timings[label],
-                }
-            results[suite] = receipts
+        try:
+            for suite in ("pytest", "ruff"):
+                remaining_suite_commands = 2 * self.benchmark_repetitions
+                results[suite] = {}
+                for label in ("baseline", "candidate"):
+                    runs = []
+                    for _ in range(self.benchmark_repetitions):
+                        remaining_time = max_runtime_seconds - (monotonic() - started)
+                        if remaining_time < 1:
+                            raise NishaError("Benchmark reached its configured total runtime limit.")
+                        self.coding.timeout = min(
+                            original_timeout, max(1, int(remaining_time / remaining_suite_commands))
+                        )
+                        run_started = monotonic()
+                        if label == "baseline":
+                            receipt = self.coding.verify(manifest["project"], suite)
+                        else:
+                            receipt = self.coding.verify_at(candidate_project_root, suite)
+                        run_seconds = round(monotonic() - run_started, 3)
+                        runs.append({
+                            **receipt,
+                            "passed": receipt["exit_code"] == 0 and not receipt["timed_out"],
+                            "measured_seconds": run_seconds,
+                        })
+                        remaining_commands -= 1
+                        remaining_suite_commands -= 1
+                    timings = [run["measured_seconds"] for run in runs]
+                    median = statistics.median(timings)
+                    mad = statistics.median(abs(value - median) for value in timings)
+                    results[suite][label] = {
+                        "passed": all(run["passed"] for run in runs),
+                        "repetitions": len(runs),
+                        "median_seconds": round(median, 3),
+                        "mad_seconds": round(mad, 3),
+                        "runs": runs,
+                    }
+        finally:
+            self.coding.timeout = original_timeout
         baseline_quality = all(results[suite]["baseline"]["passed"] for suite in results)
         candidate_quality = all(results[suite]["candidate"]["passed"] for suite in results)
-        baseline_seconds = sum(results[suite]["baseline"]["measured_seconds"] for suite in results)
-        candidate_seconds = sum(results[suite]["candidate"]["measured_seconds"] for suite in results)
+        baseline_seconds = sum(results[suite]["baseline"]["median_seconds"] for suite in results)
+        candidate_seconds = sum(results[suite]["candidate"]["median_seconds"] for suite in results)
         performance_delta_pct = (
             round((candidate_seconds - baseline_seconds) / baseline_seconds * 100, 2)
             if baseline_seconds else None
@@ -355,8 +381,8 @@ class CandidateManager:
         per_suite_delta = {}
         per_suite_guard_applied = {}
         for suite, receipts in results.items():
-            baseline_time = receipts["baseline"]["measured_seconds"]
-            candidate_time = receipts["candidate"]["measured_seconds"]
+            baseline_time = receipts["baseline"]["median_seconds"]
+            candidate_time = receipts["candidate"]["median_seconds"]
             per_suite_delta[suite] = (
                 round((candidate_time - baseline_time) / baseline_time * 100, 2)
                 if baseline_time else None
@@ -368,8 +394,8 @@ class CandidateManager:
             not per_suite_guard_applied[suite] or delta is None or delta <= 10
             for suite, delta in per_suite_delta.items()
         )
-        # Sub-second suites are dominated by process-launch noise, so report but don't gate their timing.
-        ready = candidate_quality and (not baseline_quality or no_material_slowdown)
+        # A baseline failure can improve, but no passing suite may silently regress.
+        ready = candidate_quality and no_material_slowdown
         benchmark = {
             "completed_at": datetime.now(UTC).isoformat(),
             "baseline_quality_passed": baseline_quality,
@@ -381,6 +407,9 @@ class CandidateManager:
             "per_suite_latency_guard_applied": per_suite_guard_applied,
             "performance_threshold_pct": 10,
             "minimum_timing_sample_seconds": 1.0,
+            "repetitions": self.benchmark_repetitions,
+            "timing_statistic": "median with median absolute deviation",
+            "runtime_seconds": round(monotonic() - started, 3),
             "ready_for_human_review": ready,
             "suites": results,
         }

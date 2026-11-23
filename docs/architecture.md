@@ -222,6 +222,31 @@ rewriting source files.
 
 `nisha.diagnostics.Diagnostics` produces evidence-linked local source search, bounded
 failure receipts, outcome counts, slow-command records and optional psutil process/system
-CPU and memory snapshots. It does not invent causes. The research endpoint searches
-configured local source and documentation only; web search remains on the existing
-browser/search adapters.
+CPU and memory snapshots. It does not invent causes. `nisha.research.WebResearchAgent`
+also supports explicit query-only research through configured SearXNG JSON: it sends only
+the user's public query, filters unsafe result URLs, and returns bounded snippets and
+source links without fetching full pages or attaching project files.
+
+The authenticated `POST /research/web` route exposes this action. External lookup requires
+a configured SearXNG endpoint; endpoint behavior is covered with mocks and is not assumed
+available when no endpoint is configured.
+
+### Approval-gated terminal
+
+The authenticated `POST /terminal/prepare` and `/terminal/execute` routes support explicit
+PowerShell, CMD, Python, and Git commands scoped to configured project roots. Each command
+requires a short-lived, one-use approval ID. Commands use a filtered child environment,
+bounded arguments/output/time, and a Windows Job Object for process-tree, CPU, and memory
+limits. Job Objects are resource controls, not an OS security sandbox: the process still
+runs as the signed-in user and can access that user's filesystem/network permissions. The
+host used for validation lacked Windows Sandbox, Docker, and Podman; untrusted workloads
+must not be treated as isolated.
+
+### Candidate benchmark
+
+The fixed pytest/Ruff suite runs three repetitions by default on both baseline and
+candidate. Every receipt is stored; per-suite summaries report median elapsed time and
+median absolute deviation. The 10% regression guard applies only when the baseline suite
+passes and its median is at least one second, avoiding a gate dominated by process-start
+noise on tiny commands. This is repeated timing of the fixed suite, not a broad task
+success/performance benchmark corpus.

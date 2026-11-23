@@ -84,7 +84,9 @@ class ImprovementRunner:
                     result.update({"status": "runtime_budget_exhausted", "verification": verification})
                     break
                 self.coding.timeout = min(original_timeout, max(1, int(remaining / 4)))
-                benchmark = self.candidates.benchmark(candidate["experiment_id"])
+                benchmark = self.candidates.benchmark(
+                    candidate["experiment_id"], max_runtime_seconds=max(1, int(remaining))
+                )
                 attempt["benchmark"] = benchmark
                 if benchmark["ready_for_human_review"]:
                     attempt["status"] = "ready_for_human_approval"

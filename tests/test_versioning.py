@@ -124,6 +124,11 @@ def test_promotion_requires_explicit_approval_and_rollback_reverts_by_commit(cor
     benchmark = core.candidates.benchmark(candidate["experiment_id"])
     assert benchmark["candidate_quality_passed"]
     assert benchmark["ready_for_human_review"]
+    assert benchmark["repetitions"] == 3
+    for suite in ("pytest", "ruff"):
+        assert benchmark["suites"][suite]["candidate"]["repetitions"] == 3
+        assert len(benchmark["suites"][suite]["candidate"]["runs"]) == 3
+        assert "mad_seconds" in benchmark["suites"][suite]["candidate"]
 
     with pytest.raises(NishaError, match="explicit approval"):
         core.candidates.promote(candidate["experiment_id"], False, "PROMOTE")

@@ -13,4 +13,5 @@
 - [x] COMPLETED: Phase 10 — summarize command/audit/outcome logs, slow operations, feedback counts and optional CPU/RAM snapshots.
 - [x] COMPLETED: Phase 11 — bounded propose/create/verify/benchmark loop with up to three distinct attempts and a 30-minute cap; failures are archived and candidates stop at review.
 - [x] COMPLETED: Phase 12 — explicit approval-gated fast-forward promotion and commit-based rollback with startup recovery metadata.
-- [ ] NOT STARTED: Statistical benchmarks, arbitrary terminal execution, OS sandboxing, and deeper external web research remain separate future work.
+- [x] COMPLETED: Close documented gaps with repeated baseline/candidate benchmark runs, median/MAD reporting, approval-gated bounded terminal execution, explicit query-only web research through configured SearXNG, and a live nonpersistent screen-capture smoke check.
+- [x] COMPLETED: Run focused and full regression suites, lint, document current limits, and commit the follow-on implementation while preserving unrelated `trader/` files.

@@ -14,5 +14,8 @@ Updated: 2026-11-24
 - CLI smoke check: `.venv\\Scripts\\python.exe -m nisha --help` completed successfully.
 - Ruff on all changed Python files and `git diff --check`: passed.
 - Ruff on changed Python files: passed. `git diff --check`: passed.
-- Platform limit: live screen capture, microphone, external web research and real application actions were not exercised by this regression run.
+- Follow-up focused terminal/research/versioning/API/tool/coding suite: **44 passed in 33.56s**. Changed-file Ruff passed.
+- Full suite after follow-up: **820 passed, 2 warnings in 197.18s**.
+- Live screen capture smoke check: **passed**, JPEG 2560×999, 332,572 bytes; pixels were neither inspected nor sent to a vision model.
+- Platform limits: actual external SearXNG was not queried; endpoint behavior is covered with mocks. Microphone and real target-app actions were not exercised in this run. Terminal execution is Windows Job Object resource/time/process-tree bounded, but runs as the signed-in account and does not isolate filesystem, network, or credentials.
 - Warnings: pywinauto externally defined COM initialization flags; pypdf `add_js` deprecation.

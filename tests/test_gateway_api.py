@@ -64,6 +64,8 @@ def test_api_requires_auth_and_enforces_cloud_policy(core, monkeypatch):
     assert client.get("/coding/candidates").status_code == 401
     assert client.get("/diagnostics").status_code == 401
     assert client.post("/computer/screen", json={}).status_code == 401
+    assert client.post("/terminal/prepare", json={}).status_code == 401
+    assert client.post("/research/web", json={}).status_code == 401
     client.headers["Authorization"] = "Bearer test-token"
     project = core.settings.data_dir / "configured-project"
     project.mkdir()
@@ -93,7 +95,22 @@ def test_api_requires_auth_and_enforces_cloud_policy(core, monkeypatch):
         "list_files",
         "read_file",
         "delete_file",
+        "run_terminal_command",
     ]
+    terminal_prepare = client.post(
+        "/terminal/prepare",
+        json={"shell": "python", "project": "API project", "args": ["-c", "print('api-terminal')"]},
+    )
+    assert terminal_prepare.status_code == 200
+    terminal_run = client.post(
+        "/terminal/execute",
+        json={"approval_id": terminal_prepare.json()["approval_id"], "approved": True},
+    )
+    assert terminal_run.status_code == 200 and "api-terminal" in terminal_run.json()["stdout"]
+    web_without_endpoint = client.post(
+        "/research/web", json={"query": "public query", "session_id": "unused"}
+    )
+    assert web_without_endpoint.status_code == 400
     core.screen.analyze = lambda question: f"Local screen result: {question or 'overview'}"
     screen = client.post("/computer/screen", json={"question": "Which app is open?"})
     assert screen.status_code == 200

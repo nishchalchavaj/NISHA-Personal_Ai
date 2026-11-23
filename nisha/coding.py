@@ -32,8 +32,8 @@ MAX_SOURCE_BYTES = 500_000
 MAX_CONTEXT_CHARS = 80_000
 MAX_OUTPUT_BYTES = 64_000
 _ASSIGNMENT_SECRET = re.compile(
-    r"(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
-    r"password|passwd|secret|credential)\b(\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+    r"(?i)\b(?:api[_-]?(?:key|secret)|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
+    r"password|passwd|secret|credential|token)\b(\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
 )
 _TOKEN_SECRET = re.compile(r"(?i)\b(?:sk-[a-z0-9_-]{16,}|gh[pousr]_[a-z0-9]{20,}|AKIA[A-Z0-9]{16})\b")
 

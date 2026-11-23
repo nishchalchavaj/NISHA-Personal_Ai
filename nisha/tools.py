@@ -1,4 +1,4 @@
-"""Explicit tools with bounded paths and one-use approvals. No shell execution."""
+"""Explicit bounded tools; terminal commands use a separate approval-gated service."""
 
 from dataclasses import dataclass
 from hashlib import sha256
@@ -34,6 +34,17 @@ TOOL_CATALOG = (
         "requires_confirmation": True,
     },
 )
+TERMINAL_TOOL = {
+    "name": "run_terminal_command",
+    "description": "Prepare a bounded project-scoped Windows terminal command; execution always requires separate one-use approval.",
+    "parameters": {
+        "shell": "powershell, cmd, python, or git",
+        "project": "configured project name; command working directory",
+        "args": "argument list for python/git, or script for powershell/cmd",
+    },
+    "risk": "sensitive_or_critical",
+    "requires_confirmation": True,
+}
 _REGISTERED_ACTIONS = frozenset(tool["name"] for tool in TOOL_CATALOG)
 
 
@@ -55,9 +66,10 @@ class ToolService:
 
     @staticmethod
     def catalog():
-        """Return metadata for the explicitly supported tools, without runtime state."""
+        """Return registered tool metadata, including separate terminal approval flow."""
         return [
-            {**tool, "parameters": dict(tool["parameters"])} for tool in TOOL_CATALOG
+            {**tool, "parameters": dict(tool["parameters"])}
+            for tool in (*TOOL_CATALOG, TERMINAL_TOOL)
         ]
 
     def allowed_file(self, name):

@@ -5,7 +5,7 @@
 **Branch at audit start:** `main`
 **Current commit:** `9bfaa52` (`Merge remote-tracking branch 'origin/main'`)
 
-The architecture and gap findings below describe the project before the Phase 3 changes in this task; the roadmap and verification sections record the resulting updates.
+The architecture and gap findings below describe the project before the Phase 3 changes in this task; the roadmap and verification sections record the resulting updates. A follow-up on 2026-11-24 added repeated benchmarks, an approval-gated but non-sandboxed terminal, configured web research, and a live capture smoke check. See the current state and explicit limits in `NISHA_PROJECT_STATE.md` and `docs/architecture.md`.
 
 ## Current Architecture
 
@@ -110,6 +110,12 @@ The target preserves local-first conversation, existing clients, user settings, 
 | 10. Self-analysis | Complete foundation: coding receipts, audit/outcome counts, slow commands, user observation counts, and optional psutil snapshots; no causal claims are invented. |
 | 11. Controlled self-improvement | Complete bounded workflow: up to three distinct proposals within 30 minutes, isolated candidates, failure-informed retries, verification and benchmark, then stop for review or archive failures. |
 | 12. Promotion/rollback | Complete: explicit authenticated human approval, fast-forward-only promotion from unchanged base, commit-based rollback, and startup metadata recovery. |
+| Follow-up benchmark | Complete for the fixed suite: three repetitions per checkout by default, per-run receipts, median/MAD summaries, and a passing-baseline median regression guard. Not a broad performance benchmark corpus. |
+| Follow-up terminal | Complete for explicit approved commands scoped to configured projects, with bounded output/time and Windows Job Object process/CPU/memory controls. Not an OS sandbox; execution inherits the signed-in account. |
+| Follow-up web research | Complete for query-only SearXNG JSON lookup, bounded snippets, and safe source links. No full-page fetch and no project files in the request. |
+| Follow-up screen validation | Complete: live capture returned a bounded JPEG and format/dimensions/size were checked. Pixels were not inspected or sent to a vision model. |
+
+**Follow-up verification:** Full regression suite on 2026-11-24: **820 passed, 2 existing warnings in 197.18 seconds**. The focused new/changed subsystem suite reported **44 passed in 33.56 seconds**; Ruff, CLI help, module imports, and `git diff --check` passed. The live capture smoke check validated metadata only. This host had no Windows Sandbox, Docker, or Podman, so terminal process limits must not be represented as OS sandboxing.
 
 ## Verification
 

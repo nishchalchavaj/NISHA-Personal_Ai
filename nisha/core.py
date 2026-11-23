@@ -78,12 +78,17 @@ class NishaCore:
 
         self.coding = ProjectCodingAgent(self.connections, settings.data_dir, self.store)
         self.candidates = CandidateManager(self.coding, settings.data_dir, self.store)
+        from nisha.terminal import TerminalService
+
+        self.terminal = TerminalService(self.connections, settings.data_dir, self.store)
         self.startup_recovery = self.candidates.recover_interrupted()
         from nisha.diagnostics import Diagnostics
         from nisha.improvement import ImprovementRunner
+        from nisha.research import WebResearchAgent
 
         self.diagnostics = Diagnostics(self.coding, self.store, settings.data_dir)
         self.improvement = ImprovementRunner(self.coding, self.candidates, self.store)
+        self.research_agent = WebResearchAgent(self.connections, store=self.store)
         self.devices = Devices(self.connections)
         self.automation = Automation(
             self.connections, self.devices, self.workflows.desktop, settings.data_dir
@@ -367,6 +372,22 @@ class NishaCore:
                 )
                 or "No matching source or documentation lines found."
             )
+        web_research_request = re.fullmatch(
+            r"(?:please )?(?:web research|research the web|search the web) for (.{2,500})",
+            text.strip().strip(".!?"),
+            re.IGNORECASE,
+        )
+        if web_research_request:
+            try:
+                result = self.research_agent.research(
+                    web_research_request[1].strip(), self, session, alias
+                )
+            except NishaError as exc:
+                return f"I couldn't complete web research: {exc}"
+            sources = "\n".join(
+                f"{item['title']}: {item['url']}" for item in result["sources"]
+            )
+            return result["summary"] + ("\n\nSources:\n" + sources if sources else "")
         if re.fullmatch(r"(?:please )?debug last failure", text.strip().strip(".!?"), re.IGNORECASE):
             result = self.diagnostics.debug()
             observations = result["observations"]

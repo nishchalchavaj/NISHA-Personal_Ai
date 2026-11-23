@@ -25,3 +25,10 @@
 - **Fix:** Keep recording each timing, but apply the 10% regression gate only when the passing baseline command takes at least one second. Full-suite timings remain gated; sub-second timings are explicitly marked as ungated.
 - **Test performed:** Reproduced in `tests/test_versioning.py::test_restart_recovery_finishes_rollback_metadata_after_git_revert`; verify the candidate remains reviewable and that the sub-second lint guard is marked unapplied.
 - **Result:** Focused test passes with the minimum measurement threshold.
+
+## Follow-up gap-closure fixes
+
+- **Benchmark guard:** Review found that a failing baseline suite could bypass the slowdown condition for another suite. The readiness gate now requires candidate quality and applies per-suite slowdown checks only where the baseline suite passed and its median is at least one second. Three-run median/MAD evidence is persisted for every suite.
+- **Windows process containment:** Initial Job Object creation and suspended-process flag handling were incompatible with the installed pywin32 API; corrected using a named/empty job name and `CREATE_SUSPENDED`, with assignment failures failing closed. PowerShell, CMD, and Python smoke commands then completed under Job Object limits; timeout termination is covered by a regression test.
+- **Secret redaction:** Generic `TOKEN=...` assignments were not redacted from public research snippets. The assignment-secret matcher now handles generic token names as well as API key/secret names; regression test passes.
+- **Result:** Follow-up focused suite passed: 44 tests; full suite passed: 820 tests with the two existing warnings.

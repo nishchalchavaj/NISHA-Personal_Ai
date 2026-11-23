@@ -1,5 +1,13 @@
 # NISHA Changelog
 
+## 2026-11-24 — Gap closure: benchmark, terminal, web research, screen smoke check
+
+- **Changed:** Repeated fixed-suite benchmarking three times per checkout by default; persisted per-run receipts and median/MAD summaries. Added authenticated prepare/approve/execute terminal routes for bounded PowerShell, CMD, Python and Git commands, with Windows Job Object time, CPU, memory, and process-tree limits. Added explicit query-only web research over configured SearXNG, returning bounded public source snippets. Updated text/voice routing, catalog, docs and tests.
+- **Why:** Continue the user's request after the phase implementation, closing the noted execution, research, benchmark-evidence and live-capture validation gaps without restructuring working modules.
+- **Tests:** Follow-up focused suite: 44 passed in 33.56s; full suite: 820 passed, 2 warnings in 197.18s. Ruff on changed Python files, CLI help, imports and `git diff --check` passed.
+- **Screen smoke check:** Captured one JPEG (2560×999, 332,572 bytes), validated only encoding metadata/dimensions/size, and did not inspect pixels or send them to a model.
+- **Known limits:** Windows Job Objects constrain resources and process trees; they do not sandbox filesystem/network/credentials. Commands run as the signed-in account. Windows Sandbox, Docker and Podman were unavailable on this host. Web research requires configured SearXNG and summarizes snippets rather than fetching full pages.
+
 ## 2026-11-23 — Architecture audit and tool catalog
 
 - **Changed:** Added the architecture audit, persistent state/task/decision/problem/test/experiment records, a metadata catalog for existing tools, and authenticated `GET /tools`; documented discovery in README. Corrected two action-test fixtures to use created sessions.

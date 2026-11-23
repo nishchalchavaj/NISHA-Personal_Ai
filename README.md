@@ -656,18 +656,24 @@ NISHA can inspect configured project source, propose a local-model patch, and ru
 verification commands. From voice or text, use **"inspect project NAME"**, **"search
 project NAME for TERM"**, **"run the tests in NAME"**, **"lint NAME"**, **"research
 project NAME for TERM"**, **"debug last failure"**, and **"analyze recent failures"**.
-Project research currently searches local source and documentation and returns file/line
-evidence. External research continues to use the existing browser/search adapters when
-requested; `/research` does not fetch the internet.
+Project research searches local source and documentation and returns file/line evidence.
+For explicit web research, use **"web research for QUERY"** or authenticated
+`POST /research/web`. It sends only the supplied public query to the configured SearXNG JSON
+endpoint, filters unsafe result URLs, and returns bounded snippets/source links. It does
+not attach local project files or fetch full pages. Configure the endpoint in settings;
+without it, NISHA reports that no web request was sent.
 
 The authenticated API also exposes `POST /coding/propose`, `POST /coding/candidates`,
 `GET /coding/candidates`, candidate `verify`, `benchmark`, and `reject` routes, `POST
-/coding/improve`, `POST /research`, `POST /debug`, and `GET /diagnostics`. Proposals are
+/coding/improve`, `POST /research`, `POST /research/web`, `POST /terminal/prepare`,
+`POST /terminal/execute`, `POST /debug`, and `GET /diagnostics`. Proposals are
 saved without applying them. Candidate creation requires a clean tracked Git checkout
 and applies the saved diff in a separate worktree. The benchmark runs pytest and Ruff on
 both baseline and candidate, records command receipts and elapsed time, and uses a 10%
 per-suite latency regression threshold when a passing baseline takes at least one second.
-Sub-second timings are recorded but not gated because process-launch noise dominates.
+Each suite runs three times per checkout by default; all receipts plus median and median
+absolute deviation are recorded. Sub-second baseline medians are not gated because
+process-launch noise dominates.
 Failed checks remain recorded.
 
 The improvement action is **"create experimental version of NAME to GOAL using
@@ -682,7 +688,11 @@ stable-version pointers are stored under `data/experiments/`.
 Candidate patches cannot edit test suites or pytest/Ruff configuration, so they cannot
 weaken their own verification gate.
 
-Fixed tests and lint run with the signed-in Windows account and are time/output bounded;
-they are not an OS sandbox. Do not point NISHA at an untrusted project and expect test
-code to be isolated from the account. Candidate inspection and research do not include
+Authenticated `POST /terminal/prepare` and `/terminal/execute` offer approval-gated,
+bounded PowerShell, CMD, Python and Git commands inside configured project roots. Each
+execution needs a short-lived one-use approval ID. Windows Job Objects limit time, CPU,
+memory and child processes, but commands still run as the signed-in Windows account;
+they are not isolated from that account's filesystem, network, or credentials. Windows
+Sandbox, Docker and Podman were not available on the validation host. Fixed tests and lint
+also run as the signed-in account. Candidate inspection and research do not include
 private files such as `.env`, credentials, keys, databases or oversized source files.
