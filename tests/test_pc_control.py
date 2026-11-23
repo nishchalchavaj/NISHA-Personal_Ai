@@ -31,8 +31,11 @@ class FakeBackend:
     def is_foreground(self, window):
         return self.foreground
 
-    def click(self, control):
-        self.calls.append(("click", control.element_info.name))
+    def click(self, control, button="left", clicks=1):
+        self.calls.append(("click", control.element_info.name, button, clicks))
+
+    def drag(self, source, target):
+        self.calls.append(("drag", source.element_info.name, target.element_info.name))
 
     def type_text(self, control, value):
         self.calls.append(("type", control.element_info.name, value))
@@ -51,7 +54,7 @@ def test_discover_and_control_named_app():
     assert "Notes - Notepad" in controller.handle("show open windows")
     assert "Button: Save" in controller.handle("show controls in Notepad")
     assert "Clicked 'Save'" in controller.handle("click Save in Notepad")
-    assert backend.calls[-1] == ("click", "Save")
+    assert backend.calls[-1] == ("click", "Save", "left", 1)
     assert "Verified text" in controller.handle("type hello into Text Editor in Notepad")
     assert backend.calls[-1] == ("type", "Text Editor", "hello")
     assert "Sent Ctrl+S" in controller.handle("press Ctrl+S in Notepad")
@@ -88,7 +91,7 @@ def test_first_link_click_uses_current_app_and_first_accessible_hyperlink():
     backend = FakeBackend(controls=[FakeControl("Dr Bro", "Hyperlink"), FakeControl("Other", "Hyperlink")])
     controller = PCControl(backend)
     assert "Dr Bro" in controller.handle("Click on the first link", current_app="Notepad")
-    assert backend.calls[-1] == ("click", "Dr Bro")
+    assert backend.calls[-1] == ("click", "Dr Bro", "left", 1)
     assert "Name the app" in controller.handle("Click on the first link")
 
 
@@ -113,13 +116,42 @@ def test_password_and_unknown_shortcut_are_rejected():
     assert not backend.calls
 
 
+def test_right_and_double_click_target_one_named_control():
+    backend = FakeBackend()
+    controller = PCControl(backend)
+    assert "Right-clicked 'Save'" in controller.handle("right-click Save in Notepad")
+    assert backend.calls[-1] == ("click", "Save", "right", 1)
+    assert "Double-clicked 'Save'" in controller.handle("double click Save", current_app="Notepad")
+    assert backend.calls[-1] == ("click", "Save", "left", 2)
+    assert "reviewed action" in controller.handle("double-click Delete in Notepad")
+    assert backend.calls[-1] == ("click", "Save", "left", 2)
+
+
+def test_drag_uses_two_named_accessible_controls_and_refuses_sensitive_targets():
+    backend = FakeBackend(
+        windows=[Window(1, 2, "File Explorer")],
+        controls=[FakeControl("Report"), FakeControl("Archive folder")],
+    )
+    controller = PCControl(backend)
+    assert "Dragged 'Report' to 'Archive folder'" in controller.handle(
+        "drag Report to Archive folder in Explorer"
+    )
+    assert backend.calls[-1] == ("drag", "Report", "Archive folder")
+    assert "reviewed action workflow" in controller.handle(
+        "drag Report to Delete in Explorer"
+    )
+    assert backend.calls[-1] == ("drag", "Report", "Archive folder")
+
+
 def test_pc_commands_route_as_actions():
     from nisha.responsiveness import action_request
 
     for phrase in (
         "show open windows", "show controls in Chrome", "click Save in Notepad",
         "type hello into Search in Chrome", "press Ctrl+F in Chrome", "list shortcuts",
-        "switch to Chrome", "scroll down in Chrome",
+        "switch to Chrome", "scroll down in Chrome", "right-click Save in Notepad",
+        "double-click Save in Notepad",
+        "drag Report to Archive in Explorer",
     ):
         assert action_request(phrase), phrase
 

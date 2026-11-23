@@ -4,6 +4,18 @@ from nisha.errors import NishaError
 from nisha.tools import ToolService
 
 
+def test_catalog_describes_only_registered_safe_tools(core, tmp_path):
+    tools = ToolService(core.store, tmp_path / "workspace")
+    catalog = tools.catalog()
+    assert [tool["name"] for tool in catalog] == ["list_files", "read_file", "delete_file"]
+    delete = next(tool for tool in catalog if tool["name"] == "delete_file")
+    assert delete["risk"] == "sensitive"
+    assert delete["requires_confirmation"] is True
+    assert all(tool["name"] != "run_python" for tool in catalog)
+    catalog[0]["parameters"]["unexpected"] = "value"
+    assert "unexpected" not in tools.catalog()[0]["parameters"]
+
+
 def test_delete_requires_preview_and_one_use_approval(core, tmp_path):
     trashed = []
     tools = ToolService(core.store, tmp_path / "workspace", trash=trashed.append)

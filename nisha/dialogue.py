@@ -52,7 +52,7 @@ def is_action_intent(text):
     )
     return bool(
         re.match(
-            r"^(?:show local utilities|what offline tools can you use|show available local tools|i'm bored|im bored|i am bored|entertain me|calculate|compute|convert|roll|throw|pick random|choose random|rock paper scissors|play rock paper scissors|open|launch|start|go to|close|minimi[sz]e|maximize|play|resume|bring|write|draft|compose|create|prepare|type|save|edit|revise|rewrite|send|delete|remove|empty|clear|click|tap|select|press|scroll|focus|activate|switch to|show (?:open |running )?(?:app )?windows|(?:show|list) (?:controls|buttons|installed apps|shortcuts)|list (?:open |running )?(?:app )?windows|shut\s*down|shutdown|restart|reboot|turn (?:on|off)|switch (?:on|off))\b",
+            r"^(?:show local utilities|what offline tools can you use|show available local tools|i'm bored|im bored|i am bored|entertain me|calculate|compute|convert|roll|throw|pick random|choose random|rock paper scissors|play rock paper scissors|run (?:the )?(?:tests|test suite)|lint|inspect project|list project files|search project|open|launch|start|go to|close|minimi[sz]e|maximize|play|resume|bring|write|draft|compose|create|prepare|type|save|edit|revise|rewrite|send|delete|remove|empty|clear|click|tap|select|press|scroll|focus|activate|switch to|show (?:open |running )?(?:app )?windows|(?:show|list) (?:controls|buttons|installed apps|shortcuts)|list (?:open |running )?(?:app )?windows|shut\s*down|shutdown|restart|reboot|turn (?:on|off)|switch (?:on|off))\b",
             value,
         )
         or bool(

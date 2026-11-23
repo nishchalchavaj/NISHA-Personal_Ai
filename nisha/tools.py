@@ -11,6 +11,31 @@ from send2trash import send2trash
 
 from nisha.errors import NishaError
 
+TOOL_CATALOG = (
+    {
+        "name": "list_files",
+        "description": "List files directly inside the NISHA workspace.",
+        "parameters": {},
+        "risk": "safe",
+        "requires_confirmation": False,
+    },
+    {
+        "name": "read_file",
+        "description": "Read a UTF-8 text file inside the NISHA workspace.",
+        "parameters": {"path": "relative workspace file path"},
+        "risk": "safe",
+        "requires_confirmation": False,
+    },
+    {
+        "name": "delete_file",
+        "description": "Move a workspace file to the recycle bin after approval.",
+        "parameters": {"path": "relative workspace file path"},
+        "risk": "sensitive",
+        "requires_confirmation": True,
+    },
+)
+_REGISTERED_ACTIONS = frozenset(tool["name"] for tool in TOOL_CATALOG)
+
 
 @dataclass(frozen=True)
 class PendingAction:
@@ -27,6 +52,13 @@ class ToolService:
         self.trash = trash
         self.pending = {}
         self.lock = RLock()
+
+    @staticmethod
+    def catalog():
+        """Return metadata for the explicitly supported tools, without runtime state."""
+        return [
+            {**tool, "parameters": dict(tool["parameters"])} for tool in TOOL_CATALOG
+        ]
 
     def allowed_file(self, name):
         if not isinstance(name, str) or not name.strip():
@@ -54,7 +86,7 @@ class ToolService:
                 ]
                 self.store.audit(action, "completed")
                 return {"status": "completed", "result": sorted(files)[:100]}
-            if action not in {"read_file", "delete_file"}:
+            if action not in _REGISTERED_ACTIONS:
                 self.store.audit("unknown_tool", "denied")
                 raise NishaError("Tool is not registered. Arbitrary system commands are disabled.")
             path = self.allowed_file(name)

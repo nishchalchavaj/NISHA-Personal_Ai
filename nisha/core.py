@@ -65,11 +65,17 @@ class NishaCore:
         self.workflows = workflows or WorkflowService(settings)
         self.window_actions = WindowActions()
         self.pc_control = PCControl()
+        from nisha.screen import ScreenService
+
+        self.screen = ScreenService(settings.ollama_url, settings.vision_model)
         self.music = SpotifyControl(self.workflows.desktop, self.pc_control)
         self.weather = LiveWeather()
         self.local_utilities = LocalUtilities(settings.data_dir / "workspace")
         self.system_actions = SystemActions(self.workflows.desktop)
         self.connections = Connections(settings.data_dir)
+        from nisha.coding import ProjectCodingAgent
+
+        self.coding = ProjectCodingAgent(self.connections, settings.data_dir, self.store)
         self.devices = Devices(self.connections)
         self.automation = Automation(
             self.connections, self.devices, self.workflows.desktop, settings.data_dir
@@ -324,6 +330,69 @@ class NishaCore:
         from nisha.dialogue import strip_trailing_address
 
         text = strip_trailing_address(text)
+        from nisha.screen import screen_question
+
+        if (question := screen_question(text)) is not None:
+            try:
+                result = self.screen.analyze(question or None)
+            except (NishaError, OSError, ValueError) as exc:
+                self.store.audit("screen_analysis", "failed")
+                return f"I couldn't analyze the current screen: {exc}"
+            self.store.audit("screen_analysis", "completed")
+            return result
+        coding_request = re.fullmatch(
+            r"(?:please )?(?:run (?:the )?(tests|test suite)|lint)(?: (?:in|for|project) (.+))?",
+            text.strip().strip(".!?"),
+            re.IGNORECASE,
+        )
+        if coding_request:
+            config = self.connections.load()
+            project_name = coding_request[2] if coding_request[2] else config.default_project
+            if not project_name:
+                return "Choose a configured project first, then say 'run tests in <project>'."
+            suite = "ruff" if text.casefold().strip().startswith("lint") or text.casefold().strip().startswith("please lint") else "pytest"
+            try:
+                receipt = self.coding.verify(project_name, suite)
+            except (NishaError, OSError) as exc:
+                return f"I couldn't verify {project_name}: {exc}"
+            outcome = "timed out" if receipt["timed_out"] else (
+                "passed" if receipt["exit_code"] == 0 else "failed"
+            )
+            detail = (receipt["stdout"] or receipt["stderr"]).strip()[:4000]
+            return (
+                f"{suite.capitalize()} {outcome} for {project_name} "
+                f"({receipt['duration_seconds']:.1f}s; exit {receipt['exit_code']})."
+                + ("\n" + detail if detail else "")
+            )
+        project_request = re.fullmatch(
+            r"(?:please )?(?:inspect project|list project files in) (.+)",
+            text.strip().strip(".!?"),
+            re.IGNORECASE,
+        )
+        if project_request:
+            try:
+                names = self.coding.list_files(project_request[1].strip(), limit=80)
+            except NishaError as exc:
+                return f"I couldn't inspect that project: {exc}"
+            return "Configured project files:\n" + ("\n".join(names) or "No source files found.")
+        search_request = re.fullmatch(
+            r"(?:please )?search project (.+?) for (.{1,200})",
+            text.strip().strip(".!?"),
+            re.IGNORECASE,
+        )
+        if search_request:
+            try:
+                matches = self.coding.search(
+                    search_request[1].strip(), search_request[2].strip(), limit=30
+                )
+            except NishaError as exc:
+                return f"I couldn't search that project: {exc}"
+            return "Project matches:\n" + (
+                "\n".join(
+                    f"{item['path']}:{item['line']}: {item['text']}" for item in matches
+                )
+                or "No matching source lines found."
+            )
         if utility_reply := self.local_utilities.handle(text):
             self.store.audit("local_utility", utility_reply[:240])
             return utility_reply
@@ -433,7 +502,7 @@ class NishaCore:
                 return f"I couldn't search in {surface}: {exc}"
         reply = self.pc_control.handle(text, current_app=self.current_surface.get(session))
         if reply is not None:
-            if reply.startswith(("Clicked ", "Focused ", "Opened ", "Verified text", "Sent ", "Scrolled ", "Controls in ")):
+            if reply.startswith(("Clicked ", "Right-clicked ", "Double-clicked ", "Dragged ", "Focused ", "Opened ", "Verified text", "Sent ", "Scrolled ", "Controls in ")):
                 explicit = re.search(r" (?:in|on) (.+)$", text, re.IGNORECASE)
                 if explicit and not re.fullmatch(
                     r"(?:click|tap|select) (?:on )?the first link",

@@ -10,6 +10,8 @@ flowchart TD
     Voice[Local Whisper and Windows TTS] --> Core
     API[Authenticated local API] --> Core
     Core --> Context[Bounded context and local summarization]
+    Core --> Screen[Explicit bounded screen capture]
+    Screen --> Vision[Verified loopback vision model]
     Core --> Memory[Replaceable memory backend]
     Context --> Store[Local SQLite transcripts]
     Memory --> Selected[Local selected memories]
@@ -18,6 +20,11 @@ flowchart TD
     API --> Permissions[Approval and path checks]
     Permissions --> Tools[Restricted workspace tools]
 ```
+
+Screen analysis is opt-in per request. Captured pixels are resized and sent only to the
+configured loopback Ollama vision model; they are not saved to disk by the screen service.
+The Windows UI Automation adapter remains the preferred control path because it targets
+named accessible controls rather than guessed screen coordinates.
 
 1. **Preserve the prototype outside the active application.** Old UI/voice/agent source and
    data remain under `legacy/prototype`. Active code has no imports from that location.

@@ -128,15 +128,16 @@ def test_last_webapp_receives_short_controls(core):
 def test_open_unknown_item_first_tries_current_app_control(core):
     requested = []
     core.workflows.desktop.app_path = lambda _name: None
-    core.current_surface["test-session"] = "Chrome"
+    session = core.new_session()
+    core.current_surface[session] = "Chrome"
     core.pc_control.handle = lambda *_args, **_kwargs: None
     core.pc_control.open_control = lambda label, app: requested.append((label, app)) or "Opened 'Settings' in Chrome."
     core.actions = WebsiteActions(lambda *_args, **_kwargs: False)
 
-    reply = core.handle_action("open Settings", "test-session", [], "local_fast")
+    reply = core.handle_action("open Settings", session, [], "local_fast")
     assert "Opened 'Settings'" in reply
     assert requested == [("settings", "Chrome")]
-    assert core.current_surface["test-session"] == "Chrome"
+    assert core.current_surface[session] == "Chrome"
 
 
 def test_short_search_follows_current_webapp_even_after_other_turns(core):
@@ -165,13 +166,14 @@ def test_chrome_short_search_uses_browser_not_new_tab_controls(core):
 
 def test_explicit_chrome_site_overrides_current_youtube_context(core):
     opened = []
-    core.current_surface["test-session"] = "YouTube"
+    session = core.new_session()
+    core.current_surface[session] = "YouTube"
     core.workflows.desktop.open_url_in_browser = lambda browser, url: opened.append((browser, url))
     core.pc_control.handle = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("UIA used"))
-    reply = core.handle_action("Open www.youtube.com in Chrome", "test-session", [], "local_fast")
+    reply = core.handle_action("Open www.youtube.com in Chrome", session, [], "local_fast")
     assert opened == [("chrome", "https://www.youtube.com")]
     assert "chrome" in reply
-    assert core.current_surface["test-session"] == "YouTube"
+    assert core.current_surface[session] == "YouTube"
 
 
 def test_desktop_item_uses_redirected_desktop(core, tmp_path):

@@ -133,11 +133,17 @@ class UIABackend:
 
         return win32gui.GetForegroundWindow() == window.handle
 
-    def click(self, control):
+    def click(self, control, button="left", clicks=1):
         try:
-            control.click_input()
+            control.click_input(button=button, double=clicks == 2)
         except Exception as exc:
             raise NishaError("The app refused that control click.") from exc
+
+    def drag(self, source, target):
+        try:
+            source.drag_mouse_input(dst=target, src=source, button="left")
+        except Exception as exc:
+            raise NishaError("The app refused that accessible-control drag.") from exc
 
     def type_text(self, control, value):
         try:
@@ -296,6 +302,17 @@ class PCControl:
         click = re.fullmatch(
             prefix + r"(?:click|tap|select) (.+?) (?:in|on) (.+)", value, re.IGNORECASE
         )
+        right_click = re.fullmatch(
+            prefix + r"right[ -]click (.+?) (?:in|on) (.+)", value, re.IGNORECASE
+        )
+        double_click = re.fullmatch(
+            prefix + r"double[ -]click (.+?) (?:in|on) (.+)", value, re.IGNORECASE
+        )
+        drag = re.fullmatch(
+            prefix + r"drag (.+?) (?:to|onto) (.+?) (?:in|on) (.+)",
+            value,
+            re.IGNORECASE,
+        )
         focus = re.fullmatch(
             prefix + r"(?:switch to|focus|activate|bring) (.+?)(?: to (?:the )?(?:front|foreground))?",
             value, re.IGNORECASE,
@@ -314,10 +331,17 @@ class PCControl:
         if current_app:
             inspect = inspect or re.fullmatch(prefix + r"(?:show|list) (?:controls|buttons)", value, re.IGNORECASE)
             click = click or re.fullmatch(prefix + r"(?:click|tap|select) (.+)", value, re.IGNORECASE)
+            right_click = right_click or re.fullmatch(
+                prefix + r"right[ -]click (.+)", value, re.IGNORECASE
+            )
+            double_click = double_click or re.fullmatch(
+                prefix + r"double[ -]click (.+)", value, re.IGNORECASE
+            )
+            drag = drag or re.fullmatch(prefix + r"drag (.+?) (?:to|onto) (.+)", value, re.IGNORECASE)
             typing = typing or re.fullmatch(prefix + r"type (.+?) into (.+)", value, re.IGNORECASE | re.DOTALL)
             press = press or re.fullmatch(prefix + r"press (.+)", value, re.IGNORECASE)
             scroll = scroll or re.fullmatch(prefix + r"scroll (up|down)", value, re.IGNORECASE)
-        if not any((windows, inspect, click, typing, press, focus, scroll, first_link)):
+        if not any((windows, inspect, click, right_click, double_click, drag, typing, press, focus, scroll, first_link)):
             return None
         if focus:
             return self.focus_app(focus[1].strip())
@@ -336,8 +360,11 @@ class PCControl:
                 app = inspect[1] if inspect.lastindex else current_app
             elif first_link:
                 app = current_app
-            elif click:
-                app = click[2] if click.lastindex == 2 else current_app
+            elif drag:
+                app = drag[3] if drag.lastindex == 3 else current_app
+            elif click or right_click or double_click:
+                target = click or right_click or double_click
+                app = target[2] if target.lastindex == 2 else current_app
             elif typing:
                 app = typing[3] if typing.lastindex == 3 else current_app
             elif press:
@@ -375,16 +402,36 @@ class PCControl:
                 backend.focus(window)
                 backend.click(links[0])
                 return f"Clicked the first accessible link, '{links[0].element_info.name}', in {window.title}."
-            if click:
-                label = click[1].strip()
+            if click or right_click or double_click:
+                match = click or right_click or double_click
+                label = match[1].strip()
                 if REVIEW_ACTION.search(label):
                     raise NishaError(
                         "That control can make an external or destructive change. Use NISHA's reviewed action workflow."
                     )
                 control = self._control(backend, window, label)
                 backend.focus(window)
-                backend.click(control)
-                return f"Clicked '{control.element_info.name}' in {window.title}. Check the app for the result."
+                button = "right" if right_click else "left"
+                clicks = 2 if double_click else 1
+                backend.click(control, button=button, clicks=clicks)
+                verb = "Right-clicked" if right_click else "Double-clicked" if double_click else "Clicked"
+                return f"{verb} '{control.element_info.name}' in {window.title}. Check the app for the result."
+            if drag:
+                source_label, target_label = drag[1].strip(), drag[2].strip()
+                if REVIEW_ACTION.search(source_label) or REVIEW_ACTION.search(target_label):
+                    raise NishaError(
+                        "That drag may make a destructive or external change. Use NISHA's reviewed action workflow."
+                    )
+                source = self._control(backend, window, source_label)
+                target = self._control(backend, window, target_label)
+                if source is target:
+                    raise NishaError("Choose two different accessible controls to drag between.")
+                backend.focus(window)
+                backend.drag(source, target)
+                return (
+                    f"Dragged '{source.element_info.name}' to '{target.element_info.name}' "
+                    f"in {window.title}. Check the app for the result."
+                )
             if typing:
                 content, label = typing[1], typing[2].strip()
                 if not content or len(content) > 5000:

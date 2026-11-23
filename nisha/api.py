@@ -1,6 +1,7 @@
 import hmac
 import os
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,6 +37,33 @@ class ApprovalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     approval_id: str
     approved: bool
+
+
+class ScreenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str | None = Field(default=None, max_length=500)
+
+
+class CodingInspectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project: str = Field(min_length=1, max_length=80)
+    path: str | None = Field(default=None, max_length=1024)
+    pattern: str | None = Field(default=None, max_length=200)
+
+
+class CodingProposalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project: str = Field(min_length=1, max_length=80)
+    goal: str = Field(min_length=1, max_length=4000)
+    files: list[str] = Field(min_length=1, max_length=8)
+    session_id: str = Field(min_length=1, max_length=100)
+    model: str = "auto"
+
+
+class CodingVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project: str = Field(min_length=1, max_length=80)
+    suite: Literal["pytest", "ruff"] = "pytest"
 
 
 def create_app(settings, core=None):
@@ -98,6 +126,56 @@ def create_app(settings, core=None):
     @app.delete("/memories/{memory_id}")
     def forget(memory_id: str):
         return {"deleted": instance.memory.forget(memory_id)}
+
+    @app.get("/tools")
+    def list_tools():
+        return {"tools": tools.catalog()}
+
+    @app.post("/computer/screen")
+    def analyze_screen(request: ScreenRequest):
+        try:
+            return {"description": instance.screen.analyze(request.question)}
+        except (NishaError, OSError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/projects")
+    def list_projects():
+        try:
+            return {"projects": instance.coding.projects()}
+        except NishaError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/coding/inspect")
+    def inspect_project(request: CodingInspectRequest):
+        try:
+            if request.path:
+                return instance.coding.read_file(request.project, request.path)
+            if request.pattern:
+                return {"matches": instance.coding.search(request.project, request.pattern)}
+            return {"files": instance.coding.list_files(request.project)}
+        except NishaError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/coding/propose")
+    def propose_coding_change(request: CodingProposalRequest):
+        try:
+            return instance.coding.propose(
+                request.goal,
+                request.project,
+                request.files,
+                instance,
+                request.session_id,
+                request.model,
+            )
+        except (NishaError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/coding/verify")
+    def verify_project(request: CodingVerifyRequest):
+        try:
+            return instance.coding.verify(request.project, request.suite)
+        except (NishaError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/tools/propose")
     def propose(request: ToolRequest):

@@ -59,7 +59,35 @@ def test_api_requires_auth_and_enforces_cloud_policy(core, monkeypatch):
     monkeypatch.setenv("NISHA_API_KEY", "test-token")
     client = TestClient(create_app(core.settings, core), base_url="http://127.0.0.1")
     assert client.get("/memories").status_code == 401
+    assert client.get("/tools").status_code == 401
+    assert client.get("/projects").status_code == 401
+    assert client.post("/computer/screen", json={}).status_code == 401
     client.headers["Authorization"] = "Bearer test-token"
+    project = core.settings.data_dir / "configured-project"
+    project.mkdir()
+    (project / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    core.connections.save(
+        json.dumps(
+            {
+                "projects": [{"name": "API project", "folder": str(project.resolve())}],
+                "default_project": "API project",
+            }
+        )
+    )
+    assert client.get("/projects").json()["projects"][0]["name"] == "API project"
+    inspect = client.post("/coding/inspect", json={"project": "API project"})
+    assert inspect.status_code == 200 and "main.py" in inspect.json()["files"]
+    catalog = client.get("/tools")
+    assert catalog.status_code == 200
+    assert [tool["name"] for tool in catalog.json()["tools"]] == [
+        "list_files",
+        "read_file",
+        "delete_file",
+    ]
+    core.screen.analyze = lambda question: f"Local screen result: {question or 'overview'}"
+    screen = client.post("/computer/screen", json={"question": "Which app is open?"})
+    assert screen.status_code == 200
+    assert screen.json() == {"description": "Local screen result: Which app is open?"}
     session = client.post("/sessions").json()["session_id"]
     rejected = client.post("/chat", json={"text": "Hi", "session_id": session, "model": "cloud"})
     assert rejected.status_code == 400 and core.gateway.calls == []

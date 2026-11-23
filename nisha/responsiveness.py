@@ -34,6 +34,20 @@ def action_request(text):
         return False
     if re.search(r"\bweather\b", normalized) or re.search(r"\b(?:spotify|play (?:the |a |my |current |paused )*(?:song|music))\b", normalized):
         return True
+    if re.match(
+        r"^(?:please )?(?:can you )?(?:describe (?:my )?screen|"
+        r"what(?:'s| is) on (?:my )?screen|what does (?:my )?screen show)\b",
+        normalized,
+    ):
+        return True
+    if re.match(r"^(?:please )?(?:right[ -]click|double[ -]click|drag)\b", normalized):
+        return True
+    if re.match(
+        r"^(?:please )?(?:run (?:the )?(?:tests|test suite)|lint|inspect project|"
+        r"list project files|search project)\b",
+        normalized,
+    ):
+        return True
     return is_action_intent(value) or bool(
         re.match(r"^(?:please )?(?:run my|do (?:my|the) usual)\b", value, re.IGNORECASE)
     )

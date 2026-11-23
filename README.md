@@ -382,6 +382,8 @@ receipt confirms a launch request, not that the page finished loading.
 
 For general PC control, say **"list installed apps"**, **"list shortcuts"**, **"show open
 windows"**, or **"show controls in Chrome"**. You can then say **"click Search in Chrome"**,
+**"right-click a file in Explorer"**, **"double-click a named control"**, or
+**"drag Report to Archive folder in Explorer"**,
 **"type cats into Search in Chrome"**, **"press Ctrl+F in Chrome"**, **"scroll down in
 Chrome"**, or **"switch to Chrome"**. Name a more specific window title if several match.
 After opening an app or website, short follow-ups such as **"click Search"** or
@@ -481,8 +483,16 @@ your `.env`. Gateway and Core use different authentication keys.
 | `GET /memories` | List selected memories |
 | `POST /memories` | `{ "text": "...", "key": "optional-name" }` |
 | `DELETE /memories/{id}` | Forget a selected memory |
+| `GET /tools` | Discover the registered workspace tools and their confirmation requirements |
+| `POST /computer/screen` | Capture and analyze the current screen with the configured local vision model; optional JSON `{ "question": "..." }` |
 | `POST /tools/propose` | `{ "action": "read_file", "path": "note.txt" }` |
 | `POST /tools/confirm` | `{ "approval_id": "...", "approved": true }` |
+| `GET /projects` | List configured project folders |
+| `POST /coding/inspect` | List/search/read source in a configured project; private filenames and credential values are filtered |
+| `POST /coding/propose` | Generate a local unified-diff candidate for explicitly selected source files; proposal is saved for review and never applied |
+| `POST /coding/verify` | Run the fixed `pytest` or `ruff` suite and return a structured command receipt |
+
+The desktop voice/text client also supports **"inspect project NAME"**, **"search project NAME for PATTERN"**, **"run the tests"** (the configured default project), and **"run the tests in NAME"**. Project roots are configured in Ctrl+D. Coding proposals are generated with the local model and stored under `data/coding_candidates`; applying them is deferred to the isolated Git candidate phase. Verification runs the selected project's test code under the current Windows account, with a five-minute timeout and filtered environment; it is not an operating-system sandbox. Command receipts are written to `data/reports/coding-commands.jsonl`.
 
 ## Checks, backups and troubleshooting
 
