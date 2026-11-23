@@ -5,13 +5,13 @@ Updated: 2026-11-24
 ## Current State
 
 - Version: 0.1.0 (from `pyproject.toml`)
-- Working branch: `codex/nisha-agent-phases`; Phase 1–5 checkpoint is commit `cc520a9`. Phase 6–12 changes are currently uncommitted.
+- Working branch: `codex/nisha-agent-phases`; Phase 1–5 checkpoint is `cc520a9`, and Phases 6–12 are committed as `33a4cdb`. Only the unrelated untracked `trader/` directory remains outside these commits.
 - Entry point: `python -m nisha` → `nisha.cli:main`.
 - Architecture: modular Python package, local-first Ollama/LiteLLM core, PySide6 desktop/voice clients, SQLite state, bounded action adapters. Details: [architecture audit](NISHA_ARCHITECTURE_AUDIT.md), [existing architecture](docs/architecture.md).
 - Configuration: `config/nisha.yaml`; local/private values in `.env`; runtime state under `data/`.
-- Current task: Phases 1–12 have been implemented and regression-tested; inspect final diff, persist results, and create a second local checkpoint.
+- Current task: Phases 1–12 have been implemented, regression-tested, documented, and committed locally.
 - Completed: phase 1 audit; phase 2 architecture review (existing boundaries retained); phase 3 catalog and authenticated tool discovery endpoint.
-- Next: review/stage only the implementation and documentation changes on this branch, preserving the unrelated untracked `trader/` directory.
+- Next: begin any follow-on work from this state; keep the unrelated untracked `trader/` directory outside the commits unless requested.
 - Known issues: no test failures from the final full suite. Two existing test warnings remain: pywinauto COM initialization and pypdf `add_js` deprecation.
 - Current tools: list/read/delete files inside `data/workspace`; delete is one-use, expiring, content-bound approval. Arbitrary shell and Python execution are not registered.
 - Phase 4 progress: `nisha/screen.py` implements explicit size-bounded screen capture and local-only vision analysis. Core routes explicit screen questions; authenticated `POST /computer/screen` is available. Automated checks use synthetic images; no real desktop pixels were captured during tests.
