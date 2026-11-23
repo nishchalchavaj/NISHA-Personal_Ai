@@ -24,6 +24,9 @@ MAX_PATCH_BYTES = 1_000_000
 MAX_RESULT_BYTES = 1_200_000
 SANDBOX_MEMORY_MB = 8192
 SANDBOX_START_TIMEOUT = 120
+SANDBOX_LAUNCH_GRACE_SECONDS = 30
+SANDBOX_SHUTDOWN_GRACE_SECONDS = 3
+SANDBOX_CLEANUP_TIMEOUT = 15
 POLL_SECONDS = 0.2
 EXCLUDED_DIRS = SKIP_DIRS | {
     ".cache", ".codex", ".idea", ".next", ".tox", ".vscode", "browser-data",
@@ -71,6 +74,9 @@ class WindowsSandboxRunner:
         self._cancel_event.clear()
         job_root = None
         sandbox_process = None
+        sandbox_closed = False
+        launch_started = None
+        guest_seen = False
         try:
             if self._sandbox_already_running():
                 raise NishaError("Close the existing Windows Sandbox window before running NISHA commands.")
@@ -120,6 +126,7 @@ class WindowsSandboxRunner:
                 shell=False,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+            launch_started = self._clock()
             with self._state_lock:
                 self._active_process = sandbox_process
             result_path = output_root / result_name
@@ -130,28 +137,38 @@ class WindowsSandboxRunner:
                     raise NishaError("The approved Windows Sandbox command was stopped.")
                 if result_path.is_file() and not result_path.is_symlink():
                     break
-                if sandbox_process.poll() is not None and not result_path.exists():
-                    if self._cancel_event.is_set():
-                        raise NishaError("The approved Windows Sandbox command was stopped.")
-                    raise NishaError("Windows Sandbox closed before returning a command receipt.")
+                if sandbox_process.poll() is not None:
+                    guest_present = self._sandbox_process_present()
+                    guest_seen = guest_seen or guest_present
+                    if not guest_present and (
+                        guest_seen or self._clock() - launch_started >= SANDBOX_LAUNCH_GRACE_SECONDS
+                    ):
+                        if self._cancel_event.is_set():
+                            raise NishaError("The approved Windows Sandbox command was stopped.")
+                        raise NishaError("Windows Sandbox closed before returning a command receipt.")
                 time.sleep(POLL_SECONDS)
             else:
                 self._close_sandbox(sandbox_process)
+                sandbox_closed = True
                 raise NishaError("Windows Sandbox did not return a result before the execution deadline.")
             if result_path.stat().st_size > MAX_RESULT_BYTES:
                 raise NishaError("Windows Sandbox returned an oversized result; it was discarded.")
             result = json.loads(result_path.read_text(encoding="utf-8"))
             validated = self._validate_result(result, staged, output_root, self.data_dir, request_id)
-            if not self._wait_for_sandbox_close(sandbox_process, timeout=30):
+            if self._sandbox_process_present():
+                time.sleep(SANDBOX_SHUTDOWN_GRACE_SECONDS)
                 self._close_sandbox(sandbox_process)
+            sandbox_closed = True
             return validated
         except NishaError:
             raise
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise NishaError("The isolated Windows Sandbox command failed safely.") from exc
         finally:
+            if sandbox_process is not None and not sandbox_closed and self._sandbox_process_present():
+                self._close_sandbox(sandbox_process)
             if job_root is not None:
-                shutil.rmtree(job_root, ignore_errors=True)
+                self._remove_job_root(job_root)
             with self._state_lock:
                 self._active_process = None
             self._cancel_event.clear()
@@ -167,33 +184,44 @@ class WindowsSandboxRunner:
         return {"status": "stopping_sandbox_command"}
 
     @staticmethod
+    def _remove_job_root(job_root):
+        deadline = time.monotonic() + SANDBOX_CLEANUP_TIMEOUT
+        while True:
+            try:
+                shutil.rmtree(job_root)
+                return
+            except FileNotFoundError:
+                return
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise NishaError(
+                        "Windows Sandbox closed, but its temporary job files remained locked."
+                    ) from exc
+                time.sleep(POLL_SECONDS)
+
+    @staticmethod
     def _sandbox_already_running():
         return WindowsSandboxRunner._sandbox_process_present()
 
     @staticmethod
     def _sandbox_process_present():
         try:
-            result = subprocess.run(
-                ["tasklist.exe", "/FI", "IMAGENAME eq WindowsSandbox.exe", "/FO", "CSV", "/NH"],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-                check=False,
-                shell=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            return b"WindowsSandbox.exe" in result.stdout
+            for image in (b"WindowsSandbox.exe", b"WindowsSandboxRemoteSession.exe"):
+                result = subprocess.run(
+                    ["tasklist.exe", "/FI", f"IMAGENAME eq {image.decode()}", "/FO", "CSV", "/NH"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                    shell=False,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                if image in result.stdout:
+                    return True
+            return False
         except (OSError, subprocess.SubprocessError):
             return True  # Fail closed if the single-instance check cannot be made.
-
-    def _wait_for_sandbox_close(self, process, timeout):
-        deadline = self._clock() + timeout
-        while self._clock() < deadline:
-            if process.poll() is not None and not self._sandbox_process_present():
-                return True
-            time.sleep(POLL_SECONDS)
-        return False
 
     @staticmethod
     def _stage_project(source, destination):
@@ -385,17 +413,18 @@ class WindowsSandboxRunner:
                 process.kill()
             except OSError:
                 pass
-        # The Windows Sandbox launcher can return while its guest keeps running.
-        try:
-            subprocess.run(
-                ["taskkill.exe", "/IM", "WindowsSandbox.exe", "/T", "/F"],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-                check=False,
-                shell=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-        except (OSError, subprocess.SubprocessError):
-            pass
+        # The launcher and the packaged remote-session app have separate lifetimes.
+        for image in ("WindowsSandbox.exe", "WindowsSandboxRemoteSession.exe"):
+            try:
+                subprocess.run(
+                    ["taskkill.exe", "/IM", image, "/T", "/F"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                    shell=False,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass

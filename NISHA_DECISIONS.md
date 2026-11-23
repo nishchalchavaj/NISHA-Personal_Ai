@@ -19,4 +19,4 @@
 **Decision:** Require Windows Sandbox for production terminal commands and fail closed when it is unavailable. Map a sanitized project snapshot and local runtimes read-only, expose only one unique writable result folder, disable guest networking and device/clipboard sharing, and return changes as a local patch.
 **Reason:** The user asked for local execution without personal/project data leaving the PC. A host Job Object limits resources but does not isolate credentials, filesystem or network.
 **Alternatives considered:** Continue host execution with Job Objects; mount the project writable; allow network access; silently fall back to host when Sandbox is unavailable.
-**Consequences:** No command runs until the optional feature is enabled. A real guest boot has not yet been verified because the prior UAC enable attempt was canceled. This execution path makes no remote project/query calls.
+**Consequences:** No command runs until the optional feature is enabled. The user enabled it and restarted Windows; a real offline guest command, local patch, host-input preservation, and cleanup have now been verified. This execution path makes no remote project/query calls.

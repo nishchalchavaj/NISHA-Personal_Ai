@@ -697,3 +697,5 @@ Sandbox is missing or disabled, NISHA refuses terminal execution instead of runn
 the host. Enabling the feature may require administrator elevation and a restart. Fixed
 tests and lint still run as the signed-in account. Candidate inspection and research omit
 private files such as `.env`, credentials, keys, databases and oversized source files.
+The current Windows host has the feature enabled; a real offline guest smoke test verified
+local patch output, unchanged host input and per-job cleanup.

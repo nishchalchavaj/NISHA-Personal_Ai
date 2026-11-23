@@ -28,6 +28,6 @@
 - **Candidate:** Windows Sandbox runner with filtered project snapshot, read-only local Python/Git tools, disabled networking and device sharing, capped result/patch, and emergency stop.
 - **Tests:** Focused Sandbox/terminal/API/resident-UI suite; full `pytest -q`; Ruff; `git diff --check`.
 - **Benchmark:** N/A; this is an isolation behavior change rather than a performance candidate.
-- **Result:** Focused suite 98 passed; after fixing guest Python mount consistency and binding results to the one-use ID, focused Sandbox/terminal/API suite 32 passed and full suite 836 passed in 231.96s with two existing warnings. Real guest boot is unverified because `WindowsSandbox.exe` is absent.
-- **Decision:** Keep the fail-closed implementation; do not claim guest E2E completion until the feature is enabled and a real guest run succeeds.
+- **Result:** User enabled Windows Sandbox and restarted. The real guest command returned exit 0 with networking disabled, a local patch containing the guest edit, unchanged host input, and no new job directory. A launcher/session race was found and fixed. Focused Sandbox/terminal/API suite: 33 passed; full suite: 837 passed in 305.51s with two existing warnings.
+- **Decision:** Keep the fail-closed implementation and packaged-session lifecycle handling. The real guest E2E is verified on this host.
 - **Rollback information:** Changes remain on the feature branch. No changes to unrelated untracked `trader/`.

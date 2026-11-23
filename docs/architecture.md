@@ -246,8 +246,8 @@ never writable from the guest. Temporary job folders are deleted after each comm
 Sandbox memory is capped at 8 GB, command runtime at five minutes, and stdout/stderr at
 64 KB each; oversized diffs are discarded rather than returned partially. Windows host
 diagnostics/updates remain governed by the host's Windows privacy settings. The current
-machine meets the Windows Pro/virtualization/RAM prerequisites, but the Sandbox feature is
-not enabled, so real guest execution remains pending administrator elevation and restart.
+machine has Windows Sandbox enabled. A real offline guest run verified command output,
+local patch creation, unchanged host input, and per-job cleanup.
 
 ### Candidate benchmark
 

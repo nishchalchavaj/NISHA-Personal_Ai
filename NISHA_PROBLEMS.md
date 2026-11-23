@@ -50,3 +50,12 @@
 - **Fix:** Use the mapped `C:\NishaTools\Python\python.exe` path and assert the executable parent matches the configured guest mount.
 - **Test performed:** Focused Sandbox/terminal/API tests and full post-fix regression suite.
 - **Result:** Focused suite passed (31 tests); full suite passed (835 tests, 2 existing warnings).
+
+## Windows Sandbox launcher exits before its guest session starts
+
+- **What happened:** The live E2E initially failed with Windows Sandbox error `0x80070002` before returning a result. A simple mapped-folder probe later confirmed the Sandbox configuration and mappings were valid.
+- **Likely cause:** `WindowsSandbox.exe` hands work to `WindowsSandboxRemoteSession.exe` and can exit before the guest's logon command finishes. The runner treated launcher exit as guest exit and removed mapped files during startup.
+- **Confirmed cause:** The launcher exited before the test guest produced its output; the packaged remote-session app was the active guest UI. Delayed result delivery after launcher exit reproduced the lifecycle behavior.
+- **Fix:** Track the packaged remote-session process, wait for the job receipt after launcher exit, then allow guest shutdown, close its disconnected UI, and retry temporary job cleanup.
+- **Test performed:** Added a launcher-exits-first regression test; ran the live Windows Sandbox command and full pytest suite.
+- **Result:** Real offline E2E passed: exit 0, local patch returned, host file unchanged, no new job directory. Focused suite: 33 passed; full suite: 837 passed, 2 existing warnings.

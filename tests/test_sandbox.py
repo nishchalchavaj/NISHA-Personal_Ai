@@ -121,6 +121,52 @@ def test_sandbox_runs_only_offline_with_minimal_readonly_inputs_and_local_patch(
     assert list((tmp_path / "data" / "terminal-sandbox").glob("job-*")) == []
 
 
+def test_sandbox_waits_for_guest_result_after_launcher_exits(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "main.py").write_text("print('fixture')\n", encoding="utf-8")
+    sandbox_exe = tmp_path / "WindowsSandbox.exe"
+    sandbox_exe.write_bytes(b"fixture")
+    output_state = {"root": None}
+
+    def fake_popen(command, **_kwargs):
+        config = ET.parse(command[1]).getroot()
+        mapped = {
+            node.findtext("SandboxFolder"): Path(node.findtext("HostFolder"))
+            for node in config.find("MappedFolders").findall("MappedFolder")
+        }
+        input_root = mapped[r"C:\NishaInput"]
+        output_root = mapped[r"C:\NishaOutput"]
+        output_state["root"] = output_root
+        request = json.loads((input_root / "request.json").read_text(encoding="utf-8"))
+
+        def return_guest_receipt():
+            sleep(0.3)
+            (output_root / request["result_name"]).write_text(
+                json.dumps({
+                    "id": request["id"],
+                    "exit_code": 0,
+                    "stdout": "guest-started-after-launcher-exit",
+                    "stderr": "",
+                    "timed_out": False,
+                    "output_truncated": False,
+                    "duration_seconds": 0.1,
+                }),
+                encoding="utf-8",
+            )
+
+        Thread(target=return_guest_receipt, daemon=True).start()
+        return FinishedProcess()
+
+    runner = WindowsSandboxRunner(tmp_path / "data", executable=sandbox_exe, popen=fake_popen)
+    runner._sandbox_already_running = lambda: False
+    runner._sandbox_process_present = lambda: not any(output_state["root"].glob("result-*.json")) if output_state["root"] else False
+
+    result = runner.run("python", ("python", "-c", "pass"), None, project, 10)
+
+    assert result["stdout"] == "guest-started-after-launcher-exit"
+
+
 def test_sandbox_unavailable_fails_closed_without_running_host_command(tmp_path):
     runner = WindowsSandboxRunner(tmp_path / "data", executable=tmp_path / "missing.exe")
     with pytest.raises(NishaError, match="Commands are not run on the host"):
