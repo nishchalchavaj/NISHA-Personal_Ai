@@ -220,6 +220,17 @@ def create_app(settings, core=None):
         except (NishaError, OSError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.post("/terminal/stop")
+    def stop_terminal():
+        return instance.terminal.stop()
+
+    @app.get("/terminal/patches/{patch_id}")
+    def read_terminal_patch(patch_id: str):
+        try:
+            return instance.terminal.read_patch(patch_id)
+        except NishaError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
     @app.post("/computer/screen")
     def analyze_screen(request: ScreenRequest):
         try:

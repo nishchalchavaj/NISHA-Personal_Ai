@@ -13,5 +13,8 @@
 - [x] COMPLETED: Phase 10 — summarize command/audit/outcome logs, slow operations, feedback counts and optional CPU/RAM snapshots.
 - [x] COMPLETED: Phase 11 — bounded propose/create/verify/benchmark loop with up to three distinct attempts and a 30-minute cap; failures are archived and candidates stop at review.
 - [x] COMPLETED: Phase 12 — explicit approval-gated fast-forward promotion and commit-based rollback with startup recovery metadata.
-- [x] COMPLETED: Close documented gaps with repeated baseline/candidate benchmark runs, median/MAD reporting, approval-gated bounded terminal execution, explicit query-only web research through configured SearXNG, and a live nonpersistent screen-capture smoke check.
-- [x] COMPLETED: Run focused and full regression suites, lint, document current limits, and commit the follow-on implementation while preserving unrelated `trader/` files.
+- [x] COMPLETED: Close documented gaps with repeated baseline/candidate benchmark runs, median/MAD reporting, explicit query-only web research through configured SearXNG, and a live nonpersistent screen-capture smoke check.
+- [x] COMPLETED: Replace host-executed terminal commands with fail-closed Windows Sandbox jobs, using offline networking, no clipboard/device sharing, sanitized read-only snapshots, bounded local patch output, and no host fallback.
+- [!] BLOCKED: Enable/restart Windows Sandbox and run actual guest end-to-end tests; `WindowsSandbox.exe` is absent, the prior UAC prompt was canceled, and the elevated retry was rejected by Windows command policy. Requires an administrator-approved feature enable and restart.
+- [x] COMPLETED: Run post-integration focused adversarial stress tests (98 initial focused passes, 32 final Sandbox/terminal/API passes) and full regression (836 passed, 2 existing warnings); audit remaining master-spec boundaries and record them.
+- [ ] NOT STARTED: After Windows Sandbox becomes available, run a real guest E2E command, inspect its local patch receipt, and verify shutdown/cleanup on this host.

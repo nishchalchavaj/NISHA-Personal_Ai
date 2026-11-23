@@ -65,6 +65,8 @@ def test_api_requires_auth_and_enforces_cloud_policy(core, monkeypatch):
     assert client.get("/diagnostics").status_code == 401
     assert client.post("/computer/screen", json={}).status_code == 401
     assert client.post("/terminal/prepare", json={}).status_code == 401
+    assert client.post("/terminal/stop").status_code == 401
+    assert client.get("/terminal/patches/" + "a" * 32).status_code == 401
     assert client.post("/research/web", json={}).status_code == 401
     client.headers["Authorization"] = "Bearer test-token"
     project = core.settings.data_dir / "configured-project"
@@ -107,6 +109,8 @@ def test_api_requires_auth_and_enforces_cloud_policy(core, monkeypatch):
         json={"approval_id": terminal_prepare.json()["approval_id"], "approved": True},
     )
     assert terminal_run.status_code == 200 and "api-terminal" in terminal_run.json()["stdout"]
+    assert client.post("/terminal/stop").json() == {"status": "no_active_sandbox_command"}
+    assert client.get("/terminal/patches/" + "f" * 32).status_code == 404
     web_without_endpoint = client.post(
         "/research/web", json={"query": "public query", "session_id": "unused"}
     )

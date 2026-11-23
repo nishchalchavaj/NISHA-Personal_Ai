@@ -1,28 +1,26 @@
-"""Approval-gated Windows terminal actions with bounded output and process resources."""
+"""Approval-gated Windows Sandbox terminal actions with bounded local results."""
 
 import json
 import os
 import re
 import shutil
-import subprocess
-import sys
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from threading import Lock, RLock, Thread
+from threading import Lock, RLock
 from time import monotonic
 from uuid import uuid4
 
 from nisha.coding import redact_sensitive_text
 from nisha.errors import NishaError
+from nisha.sandbox import WindowsSandboxRunner
 
 MAX_OUTPUT_BYTES = 64_000
 MAX_ARGS = 32
 MAX_ARG_CHARS = 4096
 MAX_COMMAND_CHARS = 12_000
 MAX_RUNTIME_SECONDS = 300
-MAX_PROCESS_MEMORY = 2 * 1024 * 1024 * 1024
 APPROVAL_SECONDS = 120
 SECRET_ARGUMENT = re.compile(
     r"(?i)(?:api[_-]?key|password|passwd|client[_-]?secret|access[_-]?token|credential)\s*[:=]\s*[^\s]+"
@@ -41,6 +39,7 @@ CRITICAL_GIT = {"reset", "clean", "filter-branch", "gc", "prune"}
 class PendingCommand:
     shell: str
     argv: tuple[str, ...]
+    script: str | None
     project: str
     working_directory: str
     digest: str
@@ -61,23 +60,26 @@ class TerminalReceipt:
     stderr: str
     timed_out: bool
     output_truncated: bool
-    process_job_limits: dict
+    isolation: dict
+    snapshot: dict
+    changes_patch_path: str | None
+    patch_truncated: bool
     approved: bool
 
 
 class TerminalService:
     """Run explicitly approved commands in configured project folders only.
 
-    Windows Job Objects bound process lifetime/resources and kill child processes when the
-    job closes. They do not restrict filesystem or network access; this service is not an
-    AppContainer or Windows Sandbox.
+    Production commands run in an offline Windows Sandbox over a sanitized, read-only
+    project snapshot. This service fails closed when Windows Sandbox is unavailable.
     """
 
-    def __init__(self, connections, data_dir, store=None, timeout=MAX_RUNTIME_SECONDS):
+    def __init__(self, connections, data_dir, store=None, timeout=MAX_RUNTIME_SECONDS, sandbox=None):
         self.connections = connections
         self.data_dir = Path(data_dir).resolve()
         self.store = store
         self.timeout = max(1, min(int(timeout), MAX_RUNTIME_SECONDS))
+        self.sandbox = sandbox or WindowsSandboxRunner(self.data_dir)
         self.pending = {}
         self.lock = RLock()
         self.log_lock = Lock()
@@ -121,7 +123,7 @@ class TerminalService:
             if shell in {"powershell", "cmd"}:
                 raise NishaError("PowerShell and CMD require a script string.")
             if shell == "python":
-                argv = [sys.executable, *args]
+                argv = ["python", *args]
             else:
                 subcommand = args[0].casefold()
                 if any(
@@ -132,10 +134,12 @@ class TerminalService:
                     raise NishaError("Git directory/configuration overrides are blocked.")
                 if subcommand in CRITICAL_GIT or any(arg.casefold() in {"--hard", "-fdx", "--force"} for arg in args):
                     raise NishaError("This destructive Git command is blocked by NISHA's terminal policy.")
+                if subcommand in NETWORK_COMMANDS:
+                    raise NishaError("Git network commands are blocked; NISHA Sandbox runs offline.")
                 executable = shutil.which("git")
                 if not executable:
                     raise NishaError("Git is unavailable.")
-                argv = [executable, *args]
+                argv = ["git", *args]
         else:
             if shell not in {"powershell", "cmd"} or not isinstance(script, str):
                 raise NishaError("Shell scripts are available only for PowerShell or CMD.")
@@ -170,6 +174,11 @@ class TerminalService:
         return "level_1_development"
 
     def prepare(self, shell, project_name, args=None, script=None):
+        if not self.sandbox.available:
+            raise NishaError(
+                "Windows Sandbox is unavailable. Enable the Windows Sandbox optional feature, "
+                "restart Windows if requested, then retry. Commands are not run on the host."
+            )
         argv = self._command(shell, args, script)
         project, root = self._project(project_name)
         risk = self._risk(shell, argv)
@@ -178,6 +187,7 @@ class TerminalService:
         pending = PendingCommand(
             shell=shell,
             argv=tuple(argv),
+            script=script,
             project=project.name,
             working_directory=str(root),
             digest=digest,
@@ -201,9 +211,13 @@ class TerminalService:
             "expires_in_seconds": APPROVAL_SECONDS,
             "limits": {
                 "timeout_seconds": self.timeout,
-                "process_memory_bytes": MAX_PROCESS_MEMORY,
+                "sandbox_memory_bytes": 8192 * 1024 * 1024,
                 "stdout_stderr_bytes_each": MAX_OUTPUT_BYTES,
-                "filesystem_and_network_isolation": "not provided; command runs as the signed-in user",
+                "network": "disabled",
+                "clipboard": "disabled",
+                "host_project": "read-only sanitized tracked-file snapshot",
+                "host_user_profile_or_credentials": "not mapped",
+                "changes": "sandbox edits are returned as a local patch for separate review",
             },
         }
 
@@ -229,75 +243,9 @@ class TerminalService:
     def _run(self, pending, root):
         start = datetime.now(UTC)
         started = monotonic()
-        environment = {
-            key: os.environ[key]
-            for key in (
-                "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "USERPROFILE",
-                "LOCALAPPDATA", "APPDATA", "PROGRAMDATA", "COMSPEC", "PATHEXT",
-            ) if key in os.environ
-        }
-        environment.update({"PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1"})
-        import win32con
-
-        flags = (
-            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            | win32con.CREATE_SUSPENDED
+        result = self.sandbox.run(
+            pending.shell, pending.argv, pending.script, root, self.timeout
         )
-        process = subprocess.Popen(
-            pending.argv,
-            cwd=root,
-            env=environment,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=False,
-            creationflags=flags,
-        )
-        job_handle = None
-        output = {"stdout": bytearray(), "stderr": bytearray()}
-        truncated = set()
-
-        def drain(name, pipe):
-            while chunk := pipe.read(8192):
-                room = MAX_OUTPUT_BYTES - len(output[name])
-                if room > 0:
-                    output[name].extend(chunk[:room])
-                if len(chunk) > room:
-                    truncated.add(name)
-
-        readers = [Thread(target=drain, args=(name, getattr(process, name)), daemon=True) for name in output]
-        try:
-            job_handle, job_limits = self._assign_windows_job(process)
-            self._resume_windows_process(process)
-            for reader in readers:
-                reader.start()
-            timed_out = False
-            try:
-                exit_code = process.wait(timeout=self.timeout)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                self._terminate_tree(process, job_handle)
-                if process.poll() is None:
-                    process.kill()
-                process.wait()
-                exit_code = 124
-        except Exception:
-            self._terminate_tree(process, job_handle)
-            if process.poll() is None:
-                process.kill()
-            process.wait()
-            raise
-        finally:
-            if job_handle is not None:
-                try:
-                    import win32api
-                    win32api.CloseHandle(job_handle)
-                except (ImportError, OSError):
-                    pass
-        for reader in readers:
-            if reader.ident is not None:
-                reader.join(timeout=5)
         end = datetime.now(UTC)
         receipt = TerminalReceipt(
             shell=pending.shell,
@@ -305,13 +253,16 @@ class TerminalService:
             working_directory=str(root),
             start_time=start.isoformat(),
             end_time=end.isoformat(),
-            duration_seconds=round(monotonic() - started, 3),
-            exit_code=exit_code,
-            stdout=redact_sensitive_text(output["stdout"].decode("utf-8", errors="replace")),
-            stderr=redact_sensitive_text(output["stderr"].decode("utf-8", errors="replace")),
-            timed_out=timed_out,
-            output_truncated=bool(truncated),
-            process_job_limits=job_limits,
+            duration_seconds=round(max(monotonic() - started, float(result.get("duration_seconds", 0))), 3),
+            exit_code=int(result["exit_code"]),
+            stdout=redact_sensitive_text(str(result["stdout"]))[:MAX_OUTPUT_BYTES],
+            stderr=redact_sensitive_text(str(result["stderr"]))[:MAX_OUTPUT_BYTES],
+            timed_out=bool(result["timed_out"]),
+            output_truncated=bool(result["output_truncated"]),
+            isolation=dict(result["isolation"]),
+            snapshot=dict(result["snapshot"]),
+            changes_patch_path=result.get("changes_patch_path"),
+            patch_truncated=bool(result.get("patch_truncated", False)),
             approved=True,
         )
         self.receipt_log.parent.mkdir(parents=True, exist_ok=True)
@@ -319,78 +270,20 @@ class TerminalService:
             log.write(json.dumps(asdict(receipt), ensure_ascii=False) + "\n")
         return receipt
 
-    @staticmethod
-    def _assign_windows_job(process):
-        if os.name != "nt":
-            raise NishaError("Terminal process limits are available only on Windows.")
+    def stop(self):
+        result = self.sandbox.stop()
+        if self.store:
+            self.store.audit("terminal_stop", result["status"])
+        return result
+
+    def read_patch(self, patch_id):
+        if not re.fullmatch(r"[0-9a-f]{32}", patch_id or ""):
+            raise NishaError("The terminal patch id is invalid.")
+        path = self.data_dir / "reports" / "terminal-patches" / f"{patch_id}.patch"
         try:
-            import win32job
-
-            job = win32job.CreateJobObject(None, "")
-            limits = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
-            basic = limits["BasicLimitInformation"]
-            basic["LimitFlags"] |= (
-                win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-                | win32job.JOB_OBJECT_LIMIT_PROCESS_MEMORY
-                | win32job.JOB_OBJECT_LIMIT_PROCESS_TIME
-            )
-            basic["PerProcessUserTimeLimit"] = MAX_RUNTIME_SECONDS * 10_000_000
-            limits["ProcessMemoryLimit"] = MAX_PROCESS_MEMORY
-            win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, limits)
-            win32job.AssignProcessToJobObject(job, process._handle)
-            return job, {
-                "enabled": True,
-                "kill_process_tree_on_timeout_or_close": True,
-                "per_process_user_time_seconds": MAX_RUNTIME_SECONDS,
-                "per_process_memory_bytes": MAX_PROCESS_MEMORY,
-                "filesystem_or_network_restriction": False,
-            }
-        except Exception as exc:
-            try:
-                process.kill()
-                process.wait(timeout=5)
-            except (OSError, subprocess.SubprocessError):
-                pass
-            raise NishaError("Windows could not apply the required process Job Object limits; command was stopped.") from exc
-
-    @staticmethod
-    def _resume_windows_process(process):
-        if os.name != "nt":
-            raise NishaError("Terminal process execution is available on Windows only.")
-        import ctypes
-        from ctypes import wintypes
-
-        resume = ctypes.WinDLL("ntdll").NtResumeProcess
-        resume.argtypes = [wintypes.HANDLE]
-        resume.restype = wintypes.LONG
-        status = resume(wintypes.HANDLE(int(process._handle)))
-        if status != 0:
-            raise NishaError("Windows could not start the approved process inside its Job Object.")
-
-    @staticmethod
-    def _terminate_tree(process, job_handle):
-        if job_handle is not None:
-            try:
-                import win32job
-                win32job.TerminateJobObject(job_handle, 1)
-                return
-            except (ImportError, OSError):
-                pass
-        if os.name == "nt":
-            taskkill = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "taskkill.exe"
-            if taskkill.is_file():
-                try:
-                    subprocess.run(
-                        [str(taskkill), "/PID", str(process.pid), "/T", "/F"],
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=5,
-                        shell=False,
-                        check=False,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    )
-                    return
-                except (OSError, subprocess.SubprocessError):
-                    pass
-        process.kill()
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 1_000_000:
+                raise NishaError("The terminal patch is unavailable or exceeds its size limit.")
+            patch = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise NishaError("The terminal patch is unavailable.") from exc
+        return {"patch_id": patch_id, "patch": redact_sensitive_text(patch)}

@@ -689,10 +689,11 @@ Candidate patches cannot edit test suites or pytest/Ruff configuration, so they 
 weaken their own verification gate.
 
 Authenticated `POST /terminal/prepare` and `/terminal/execute` offer approval-gated,
-bounded PowerShell, CMD, Python and Git commands inside configured project roots. Each
-execution needs a short-lived one-use approval ID. Windows Job Objects limit time, CPU,
-memory and child processes, but commands still run as the signed-in Windows account;
-they are not isolated from that account's filesystem, network, or credentials. Windows
-Sandbox, Docker and Podman were not available on the validation host. Fixed tests and lint
-also run as the signed-in account. Candidate inspection and research do not include
-private files such as `.env`, credentials, keys, databases or oversized source files.
+bounded PowerShell, CMD, Python and Git commands inside Windows Sandbox. Sandbox networking,
+clipboard and device sharing are disabled. It receives a read-only snapshot of tracked
+project files and read-only runtimes; it cannot see the host profile or credentials. Writes
+remain inside the disposable guest and are returned as a local patch for review. If Windows
+Sandbox is missing or disabled, NISHA refuses terminal execution instead of running it on
+the host. Enabling the feature may require administrator elevation and a restart. Fixed
+tests and lint still run as the signed-in account. Candidate inspection and research omit
+private files such as `.env`, credentials, keys, databases and oversized source files.

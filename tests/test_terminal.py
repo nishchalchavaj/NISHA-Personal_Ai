@@ -15,7 +15,7 @@ def configure_project(core, path):
     )
 
 
-def test_python_command_requires_one_use_approval_and_runs_in_job_object(core, tmp_path):
+def test_python_command_requires_one_use_approval_and_uses_configured_sandbox_runner(core, tmp_path):
     project = tmp_path / "project"
     configure_project(core, project)
     prepared = core.terminal.prepare(
@@ -26,13 +26,14 @@ def test_python_command_requires_one_use_approval_and_runs_in_job_object(core, t
     assert prepared["requires_confirmation"] is True
     assert prepared["risk"] == "level_2_code"
     assert prepared["working_directory"] == str(project.resolve())
-    assert prepared["limits"]["process_memory_bytes"] > 0
+    assert prepared["limits"]["sandbox_memory_bytes"] > 0
+    assert prepared["limits"]["network"] == "disabled"
     result = core.terminal.execute(prepared["approval_id"], True)
 
     assert result["exit_code"] == 0
     assert "terminal-ok" in result["stdout"]
-    assert result["process_job_limits"]["enabled"] is True
-    assert result["process_job_limits"]["filesystem_or_network_restriction"] is False
+    assert result["isolation"]["sandbox"] == "test-only process double"
+    assert result["isolation"]["network"] is False
     with pytest.raises(NishaError, match="expired or was already used"):
         core.terminal.execute(prepared["approval_id"], True)
 
@@ -77,7 +78,7 @@ def test_terminal_commands_require_a_configured_project_and_single_command_form(
         core.terminal.prepare("python", "Terminal fixture", args=["--version"], script="echo")
 
 
-def test_terminal_timeout_kills_approved_process_job(core, tmp_path):
+def test_terminal_timeout_stops_approved_sandbox_command(core, tmp_path):
     project = tmp_path / "project"
     configure_project(core, project)
     core.terminal.timeout = 1
@@ -89,4 +90,25 @@ def test_terminal_timeout_kills_approved_process_job(core, tmp_path):
 
     assert result["timed_out"] is True
     assert result["exit_code"] == 124
-    assert result["process_job_limits"]["kill_process_tree_on_timeout_or_close"] is True
+    assert result["isolation"]["sandbox"] == "test-only process double"
+
+
+def test_terminal_blocks_git_network_commands(core, tmp_path):
+    configure_project(core, tmp_path / "project")
+    with pytest.raises(NishaError, match="network commands are blocked"):
+        core.terminal.prepare("git", "Terminal fixture", args=["push"])
+
+
+def test_terminal_stop_and_patch_review_are_local_and_validated(core, tmp_path):
+    patch_id = "a" * 32
+    patch_dir = tmp_path / "reports" / "terminal-patches"
+    patch_dir.mkdir(parents=True)
+    (patch_dir / f"{patch_id}.patch").write_text(
+        "diff --git a/file.py b/file.py\n+token=private-value\n", encoding="utf-8"
+    )
+    assert core.terminal.stop()["status"] == "no_active_sandbox_command"
+    patch = core.terminal.read_patch(patch_id)
+    assert patch["patch_id"] == patch_id
+    assert "private-value" not in patch["patch"]
+    with pytest.raises(NishaError, match="patch id is invalid"):
+        core.terminal.read_patch("../secret")

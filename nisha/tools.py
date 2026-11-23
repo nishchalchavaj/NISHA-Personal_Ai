@@ -36,7 +36,7 @@ TOOL_CATALOG = (
 )
 TERMINAL_TOOL = {
     "name": "run_terminal_command",
-    "description": "Prepare a bounded project-scoped Windows terminal command; execution always requires separate one-use approval.",
+    "description": "Prepare a project-scoped command for offline Windows Sandbox execution; execution requires separate one-use approval and never falls back to the host.",
     "parameters": {
         "shell": "powershell, cmd, python, or git",
         "project": "configured project name; command working directory",

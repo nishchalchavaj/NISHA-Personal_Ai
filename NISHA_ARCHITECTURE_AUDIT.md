@@ -5,7 +5,7 @@
 **Branch at audit start:** `main`
 **Current commit:** `9bfaa52` (`Merge remote-tracking branch 'origin/main'`)
 
-The architecture and gap findings below describe the project before the Phase 3 changes in this task; the roadmap and verification sections record the resulting updates. A follow-up on 2026-11-24 added repeated benchmarks, an approval-gated but non-sandboxed terminal, configured web research, and a live capture smoke check. See the current state and explicit limits in `NISHA_PROJECT_STATE.md` and `docs/architecture.md`.
+The architecture and gap findings below describe the project before the Phase 3 changes in this task; the roadmap and verification sections record the resulting updates. Follow-ups added repeated benchmarks, configured web research, a live capture smoke check, and a fail-closed offline Windows Sandbox terminal. Real Sandbox guest execution is still pending feature enablement and restart on this host. See current state and limits in `NISHA_PROJECT_STATE.md` and `docs/architecture.md`.
 
 ## Current Architecture
 
@@ -87,12 +87,13 @@ Terminal / Desktop / Authenticated API
                                   |
                            Windows / local services
 
-Future, isolated layers:
-coding/research/debugging agents -> candidate worktree -> tests/evaluator
-                                  -> security review -> human approval -> promotion
+Existing isolated improvement flow:
+coding/research/debugging -> candidate worktree -> tests/benchmark/evaluator
+                           -> human approval -> promotion or commit-based rollback
+Terminal execution -> offline Windows Sandbox -> bounded local patch
 ```
 
-The target preserves local-first conversation, existing clients, user settings, and action-specific approval. Self-improvement and promotion remain future capabilities and must not alter safety controls automatically.
+The implementation preserves local-first conversation, existing clients, user settings, and action-specific approval. Candidate promotion requires explicit human approval; the improvement workflow cannot automatically alter safety controls.
 
 ## Implementation Roadmap
 
@@ -111,11 +112,13 @@ The target preserves local-first conversation, existing clients, user settings, 
 | 11. Controlled self-improvement | Complete bounded workflow: up to three distinct proposals within 30 minutes, isolated candidates, failure-informed retries, verification and benchmark, then stop for review or archive failures. |
 | 12. Promotion/rollback | Complete: explicit authenticated human approval, fast-forward-only promotion from unchanged base, commit-based rollback, and startup metadata recovery. |
 | Follow-up benchmark | Complete for the fixed suite: three repetitions per checkout by default, per-run receipts, median/MAD summaries, and a passing-baseline median regression guard. Not a broad performance benchmark corpus. |
-| Follow-up terminal | Complete for explicit approved commands scoped to configured projects, with bounded output/time and Windows Job Object process/CPU/memory controls. Not an OS sandbox; execution inherits the signed-in account. |
+| Follow-up terminal | Implementation uses offline Windows Sandbox and fails closed without it. The guest is configured without network or clipboard/device sharing, receives read-only sanitized project/tool inputs, and returns a local patch. Real guest execution has not yet been verified because the feature is disabled on this host. |
 | Follow-up web research | Complete for query-only SearXNG JSON lookup, bounded snippets, and safe source links. No full-page fetch and no project files in the request. |
 | Follow-up screen validation | Complete: live capture returned a bounded JPEG and format/dimensions/size were checked. Pixels were not inspected or sent to a vision model. |
 
-**Follow-up verification:** Full regression suite on 2026-11-24: **820 passed, 2 existing warnings in 197.18 seconds**. The focused new/changed subsystem suite reported **44 passed in 33.56 seconds**; Ruff, CLI help, module imports, and `git diff --check` passed. The live capture smoke check validated metadata only. This host had no Windows Sandbox, Docker, or Podman, so terminal process limits must not be represented as OS sandboxing.
+**Follow-up verification:** The final post-Sandbox regression suite reported **836 passed, 2 existing warnings in 231.96 seconds**. The Sandbox/terminal/API/resident-UI focused suite reported **98 passed in 63.15 seconds**, and the final Sandbox/terminal/API suite reported **32 passed**; changed-file Ruff and `git diff --check` passed. Runtime packaging previously imported the copied Python 3.11 environment plus pytest/httpx/numpy/NISHA successfully. The live Sandbox guest remains unverified: the host has Windows Pro, virtualization, and 16 GB RAM, but no `WindowsSandbox.exe`; the first feature-enable UAC launch was canceled, a later elevated retry was rejected by Windows command policy, and no restart occurred. The live capture smoke check validated metadata only.
+
+**Remaining master-spec boundaries:** These are documented product limits, not claims of completed verification: terminal execution is unavailable until the optional Windows feature is enabled; desktop actions remain named/accessibility-targeted or gesture-guided rather than general screen-coordinate clicking; metrics cover fixed tests, elapsed time, command outcomes, and optional CPU/RAM, not broad real-world task success or GPU VRAM; external SearXNG, physical microphone, and target-app workflows were not exercised in this run. The sandbox stress run used a test double because Windows Sandbox is absent. No local project data or query was sent to a remote service during this work.
 
 ## Verification
 

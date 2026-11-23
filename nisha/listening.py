@@ -19,6 +19,8 @@ STOP_PHRASES = {
     "stop speaking",
     "stop explaining",
     "stop the explanation",
+    "nisha stop",
+    "emergency stop",
 }
 
 CLOSE_PHRASES = {

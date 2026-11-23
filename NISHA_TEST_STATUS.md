@@ -17,5 +17,9 @@ Updated: 2026-11-24
 - Follow-up focused terminal/research/versioning/API/tool/coding suite: **44 passed in 33.56s**. Changed-file Ruff passed.
 - Full suite after follow-up: **820 passed, 2 warnings in 197.18s**.
 - Live screen capture smoke check: **passed**, JPEG 2560×999, 332,572 bytes; pixels were neither inspected nor sent to a vision model.
-- Platform limits: actual external SearXNG was not queried; endpoint behavior is covered with mocks. Microphone and real target-app actions were not exercised in this run. Terminal execution is Windows Job Object resource/time/process-tree bounded, but runs as the signed-in account and does not isolate filesystem, network, or credentials.
+- Windows Sandbox focused stress suite (`tests/test_sandbox.py`, terminal, gateway API, resident UI): **98 passed**, 63.15s. Covered locked-down WSB XML, readonly mappings, private/untracked-file exclusion, local patch handling, missing-feature fail-closed behavior, output/patch limits, timeout and emergency stop.
+- Final Sandbox/terminal/API suite after guest Python mount-path and receipt-ID checks: **32 passed**.
+- Full post-Sandbox regression after mount-path and receipt-ID checks: **836 passed, 2 warnings**, 231.96s. The warnings are pywinauto's externally defined COM flags and pypdf's `add_js` deprecation.
+- Changed-file Ruff and `git diff --check`: passed.
+- Platform limits: `WindowsSandbox.exe` is absent because enabling the optional feature was canceled at UAC; real guest boot/shutdown remains unverified until feature enablement and restart. External SearXNG, physical microphone and live target-app actions were not exercised. The live screen capture check validated JPEG metadata/dimensions only; it did not test pixel interpretation. Coordinate-aware general clicks and broad task-success/GPU metrics remain outside current implementation.
 - Warnings: pywinauto externally defined COM initialization flags; pypdf `add_js` deprecation.

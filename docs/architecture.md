@@ -235,12 +235,19 @@ available when no endpoint is configured.
 
 The authenticated `POST /terminal/prepare` and `/terminal/execute` routes support explicit
 PowerShell, CMD, Python, and Git commands scoped to configured project roots. Each command
-requires a short-lived, one-use approval ID. Commands use a filtered child environment,
-bounded arguments/output/time, and a Windows Job Object for process-tree, CPU, and memory
-limits. Job Objects are resource controls, not an OS security sandbox: the process still
-runs as the signed-in user and can access that user's filesystem/network permissions. The
-host used for validation lacked Windows Sandbox, Docker, and Podman; untrusted workloads
-must not be treated as isolated.
+requires a short-lived, one-use approval ID. Production execution requires Windows Sandbox;
+there is no fallback to host execution. The guest runs offline with clipboard, audio,
+video, printer, and vGPU sharing disabled. It receives a read-only snapshot of tracked
+project files, read-only Python/Git runtimes, and one unique writable output folder. The
+host profile, credentials, `.env`, `.git`, runtime data, untracked files, and other projects
+are not mapped. Project changes are exported as a local patch for review; host files are
+never writable from the guest. Temporary job folders are deleted after each command.
+
+Sandbox memory is capped at 8 GB, command runtime at five minutes, and stdout/stderr at
+64 KB each; oversized diffs are discarded rather than returned partially. Windows host
+diagnostics/updates remain governed by the host's Windows privacy settings. The current
+machine meets the Windows Pro/virtualization/RAM prerequisites, but the Sandbox feature is
+not enabled, so real guest execution remains pending administrator elevation and restart.
 
 ### Candidate benchmark
 

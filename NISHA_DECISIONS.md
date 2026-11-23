@@ -13,3 +13,10 @@
 **Reason:** Clients could not discover supported actions and confirmation requirements.
 **Alternatives considered:** Add arbitrary shell, Python, or model-driven tool execution.
 **Consequences:** `GET /tools` lists only workspace list/read/delete; deletion still needs approval; no automatic invocation is added.
+
+## 2026-11-24 — Keep terminal execution inside an offline Windows Sandbox
+
+**Decision:** Require Windows Sandbox for production terminal commands and fail closed when it is unavailable. Map a sanitized project snapshot and local runtimes read-only, expose only one unique writable result folder, disable guest networking and device/clipboard sharing, and return changes as a local patch.
+**Reason:** The user asked for local execution without personal/project data leaving the PC. A host Job Object limits resources but does not isolate credentials, filesystem or network.
+**Alternatives considered:** Continue host execution with Job Objects; mount the project writable; allow network access; silently fall back to host when Sandbox is unavailable.
+**Consequences:** No command runs until the optional feature is enabled. A real guest boot has not yet been verified because the prior UAC enable attempt was canceled. This execution path makes no remote project/query calls.

@@ -32,3 +32,21 @@
 - **Windows process containment:** Initial Job Object creation and suspended-process flag handling were incompatible with the installed pywin32 API; corrected using a named/empty job name and `CREATE_SUSPENDED`, with assignment failures failing closed. PowerShell, CMD, and Python smoke commands then completed under Job Object limits; timeout termination is covered by a regression test.
 - **Secret redaction:** Generic `TOKEN=...` assignments were not redacted from public research snippets. The assignment-secret matcher now handles generic token names as well as API key/secret names; regression test passes.
 - **Result:** Follow-up focused suite passed: 44 tests; full suite passed: 820 tests with the two existing warnings.
+
+## Sandbox snapshot fallback and stop/exit race
+
+- **What happened:** The first emergency-stop stress test could not reach the fake guest process for a non-Git project. After snapshot staging was corrected, a narrow race could report an emergency stop as an unexpected Sandbox exit.
+- **Likely cause:** The filesystem-walk fallback retained absolute file paths while downstream validation expected relative paths; the process-exit branch also needed to recheck cancellation.
+- **Confirmed cause:** The staging fallback's paths were filtered as absolute and skipped. If stop arrived between the cancellation poll and process-exit check, the latter could win.
+- **Fix:** Store paths relative to the resolved project root and recheck the stop event before classifying early process exit.
+- **Test performed:** `tests/test_sandbox.py::test_emergency_stop_terminates_active_sandbox_job`, focused integration suite, and full post-change suite.
+- **Result:** Emergency-stop test passed; focused suite: 98 passed; full suite: 835 passed, 2 existing warnings.
+
+## Sandbox Python guest mount path mismatch
+
+- **What happened:** Final configuration review found that the guest bootstrap referenced `C:\NishaTools\Python311\python.exe`, while the `.wsb` file mounted the runtime at `C:\NishaTools\Python`.
+- **Likely cause:** The executable path included a Python version tag that the mount mapping did not include.
+- **Confirmed cause:** The request/bootstrap path and `MappedFolder.SandboxFolder` differed, which would prevent guest startup.
+- **Fix:** Use the mapped `C:\NishaTools\Python\python.exe` path and assert the executable parent matches the configured guest mount.
+- **Test performed:** Focused Sandbox/terminal/API tests and full post-fix regression suite.
+- **Result:** Focused suite passed (31 tests); full suite passed (835 tests, 2 existing warnings).

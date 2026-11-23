@@ -537,12 +537,15 @@ class NishaWindow(DashboardWindow):
         self.tour_enabled = False
         self.idle_checkins.suppress()
         self.wake_during_turn = False
+        terminal_status = self.core.terminal.stop()
         if self.busy():
             self.worker.requestInterruption()
         if self.listener:
             self.listener.engine.end_output()
             self.listener.engine.resume(follow_up=True, wake_only=self.busy())
         self.set_state("Muted" if self.muted else "Listening")
+        if terminal_status["status"] != "no_active_sandbox_command":
+            self.chat_panel.record_background("NISHA STOP", "Stopped the active Sandbox command.")
 
     def quit_application(self):
         self.quit_requested = True
@@ -1257,12 +1260,16 @@ class NishaWindow(DashboardWindow):
 
         if not self.core.settings.background_actions:
             return False
-        if text.casefold().strip(" .!?") == "cancel background tasks":
+        normalized = text.casefold().strip(" .!?")
+        if normalized in {"cancel background tasks", "nisha stop", "emergency stop"}:
             self.action_queue.clear()
             if self.action_job:
                 self.action_job.requestInterruption()
+            terminal_status = self.core.terminal.stop()
             self.chat_panel.record_background(
-                text, "Cancelling background work. Already completed actions are not undone."
+                text,
+                "Stopping active Sandbox work and cancelling queued actions. "
+                "Already completed actions are not undone. " + terminal_status["status"],
             )
             return True
         if not action_request(text) and not self.core.automation.matches_trigger(text):

@@ -1,5 +1,12 @@
 # NISHA Changelog
 
+## 2026-11-24 — Offline Windows Sandbox terminal
+
+- **Changed:** Routed terminal execution through a Windows Sandbox job; it fails closed when `WindowsSandbox.exe` is unavailable. The guest receives no network, clipboard, microphone, camera, printer, or virtual GPU access; only a sanitized tracked-project snapshot, read-only local Python/Git runtimes, and a unique writable result folder are mapped. Guest changes are returned as a bounded local patch, and temporary job contents are removed.
+- **Privacy:** No NISHA files, credentials, user-profile folders, queries, or commands are sent to an external service by this path. Explicit SearXNG research remains a separate feature that sends only the query when invoked.
+- **Tests:** Focused Sandbox/terminal/API/resident-UI stress suite: 98 passed in 63.15s; final Sandbox/terminal/API suite: 32 passed. Full post-integration suite: 836 passed, 2 existing warnings in 231.96s. Ruff and `git diff --check` passed. Tests found and fixed non-Git project snapshot staging, emergency-stop race handling, guest Python mount mismatch, and job-receipt ID validation.
+- **Known limits:** The Windows Sandbox feature must be enabled with administrator rights and Windows restarted before NISHA can run terminal commands. A UAC attempt was canceled and a later elevated launch was rejected by Windows command policy; no system change or restart occurred. Host Windows diagnostics and updates remain subject to Windows privacy settings.
+
 ## 2026-11-24 — Gap closure: benchmark, terminal, web research, screen smoke check
 
 - **Changed:** Repeated fixed-suite benchmarking three times per checkout by default; persisted per-run receipts and median/MAD summaries. Added authenticated prepare/approve/execute terminal routes for bounded PowerShell, CMD, Python and Git commands, with Windows Job Object time, CPU, memory, and process-tree limits. Added explicit query-only web research over configured SearXNG, returning bounded public source snippets. Updated text/voice routing, catalog, docs and tests.
