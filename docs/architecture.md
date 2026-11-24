@@ -4,6 +4,13 @@ NISHA owns identity, personality, conversation orchestration, memory policy and 
 Voice and desktop are optional clients of the same core. Generic model access is delegated
 to a dedicated LiteLLM process. Both model services bind to localhost.
 
+The PySide6 dashboard opens on the monitor nearest the center of the combined Windows
+virtual desktop. Its task/window adapters enumerate the extended desktop, and local visual
+clicks map capture coordinates through each monitor's origin and bounds. The opaque command
+center uses real NISHA status and activity; feed refreshes are debounced and do not query
+dashboard databases for every streamed token. Display geometry is covered by simulated
+monitor tests; the physical multi-monitor arrangement requires live user-side validation.
+
 ```mermaid
 flowchart TD
     Desktop[Desktop or terminal] --> Core[NISHA Core]
@@ -24,7 +31,16 @@ flowchart TD
 Screen analysis is opt-in per request. Captured pixels are resized and sent only to the
 configured loopback Ollama vision model; they are not saved to disk by the screen service.
 The Windows UI Automation adapter remains the preferred control path because it targets
-named accessible controls rather than guessed screen coordinates.
+named accessible controls. For inaccessible controls, an explicit user command can request
+one screenshot-grounded click: local vision returns a normalized point with confidence and
+evidence, the screenshot covers the extended desktop, and NISHA maps coordinates through
+the Windows virtual-screen origin and geometry before clicking. It rechecks that the monitor
+layout and screen stayed stable before the click, then takes one fresh
+screenshot for visible pixel changes. Sensitive-looking target or evidence text and confidence
+below 0.90 are refused. A changed screenshot is only a visual
+signal, not proof the user's task succeeded; the action is never retried. Images remain in
+memory and go only to the verified loopback Ollama endpoint. This narrow fallback does not
+plan or execute multi-step tasks.
 
 1. **Preserve the prototype outside the active application.** Old UI/voice/agent source and
    data remain under `legacy/prototype`. Active code has no imports from that location.
@@ -54,9 +70,16 @@ named accessible controls rather than guessed screen coordinates.
    memories. Inactive history and task results have a configurable retention period. Context
    construction limits input size, keeps complete recent pairs and summarizes locally.
    A summary cursor advances only after a successful bounded summary; source history remains
-   available until retention expires. A huge historical exchange can block summary batching;
-   bounded recent context still works, with the original transcript retained.
-7. **Dispatch real actions before conversational generation.** The active
+   available until retention expires. Compaction includes both user and assistant turns so
+   recommendations, corrections and unanswered follow-ups survive. Relevant searchable
+   summaries can be retrieved locally across sessions, without loading another full transcript.
+   A wake-only greeting follows the ordinary local LLM path. A huge historical exchange can
+   block summary batching; bounded recent context still works, with the original transcript retained.
+7. **Dispatch real actions before conversational generation.** Explicit actions serialize
+   through the action lock and route to the appropriate app or service adapter. Simple social
+   turns bypass action routing and use the LLM. Other conversational turns may check contextual
+   handlers only when the lock is immediately available; they never wait behind desktop actions
+   and fall through to LLM generation when no action matches. The active
    registry provides list/read/delete within one workspace. Approval is tied to a specific
    file and content digest, expires, and cannot be replayed. Website and installed-app
    commands invoke native adapters. Local generation produces text, Word and source files;
@@ -125,7 +148,7 @@ named accessible controls rather than guessed screen coordinates.
    Expired raw decisions become anonymous aggregate reward counts. Reviewed exact-prompt
    teacher comparisons can be exported for later preference training; no weight trainer runs.
    See [reinforcement learning](reinforcement-learning.md) for controls and retention.
-10. **Render visuals beside the conversation.** A separate translucent Qt tool window anchors
+10. **Render visuals beside the conversation.** A separate opaque Qt tool window anchors
    to the right-middle of the main window. Public-topic lookup and image loading run in
    background jobs. Epochs reject stale results after navigation, new turns and dismissal.
    Personal-reference queries and queries with local knowledge matches suppress public lookup.

@@ -17,3 +17,4 @@ legacy/
 dist/
 build/
 
+trader/*.json

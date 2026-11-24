@@ -64,7 +64,7 @@ class GmailTransport:
                 "Gmail isn't connected. Use 'setup gmail' or Ctrl+G in NISHA; your normal Google password won't work."
             ) from exc
 
-    def recent_messages(self, limit=5, since_today=False):
+    def recent_messages(self, limit=5, since_today=False, unread_only=False):
         """User-requested inbox fetch; readonly/PEEK leaves messages and flags untouched."""
         address, password = self.credentials()
         try:
@@ -75,7 +75,14 @@ class GmailTransport:
                 status, _ = inbox.select("INBOX", readonly=True)
                 if status != "OK":
                     raise NishaError("Gmail couldn't open the inbox in read-only mode.")
-                if since_today:
+                if unread_only and since_today:
+                    from datetime import datetime
+
+                    since = datetime.now().astimezone().strftime("%d-%b-%Y")
+                    status, data = inbox.uid("search", None, "UNSEEN", "SINCE", since)
+                elif unread_only:
+                    status, data = inbox.uid("search", None, "UNSEEN")
+                elif since_today:
                     from datetime import datetime
 
                     since = datetime.now().astimezone().strftime("%d-%b-%Y")

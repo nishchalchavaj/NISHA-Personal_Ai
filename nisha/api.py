@@ -44,6 +44,11 @@ class ScreenRequest(BaseModel):
     question: str | None = Field(default=None, max_length=500)
 
 
+class VisualClickRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target: str = Field(min_length=1, max_length=160)
+
+
 class CodingInspectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project: str = Field(min_length=1, max_length=80)
@@ -235,6 +240,13 @@ def create_app(settings, core=None):
     def analyze_screen(request: ScreenRequest):
         try:
             return {"description": instance.screen.analyze(request.question)}
+        except (NishaError, OSError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/computer/click")
+    def click_visual_target(request: VisualClickRequest):
+        try:
+            return {"result": instance.screen.visual_click(request.target, instance.pc_control)}
         except (NishaError, OSError, ValueError) as exc:
             raise HTTPException(400, str(exc)) from exc
 

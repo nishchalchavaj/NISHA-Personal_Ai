@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QEventLoop, QRect, Qt, QTimer
+from PySide6.QtCore import QEventLoop, QPoint, QRect, Qt, QTimer
 from PySide6.QtWidgets import QApplication
 
 from nisha.listening import ListenerEngine
@@ -9,6 +9,7 @@ from nisha.media import MediaAsset
 from nisha.settings import VoiceSettings
 from nisha.ui.app import NishaWindow
 from nisha.ui.resident import DesktopInstance, LoginStartup
+from nisha.ui.window import center_monitor
 
 
 @pytest.fixture
@@ -18,7 +19,11 @@ def app(monkeypatch):
 
 
 @pytest.fixture
-def window(core, app):
+def window(core, app, monkeypatch):
+    from nisha.voice import WindowsSpeech
+
+    # Keep UI regression runs silent while still exercising speech-worker flow.
+    monkeypatch.setattr(WindowsSpeech, "speak", lambda *_args, **_kwargs: None)
     window = NishaWindow(core, start_listener=False, background_enabled=True)
     engine = ListenerEngine(
         VoiceSettings(), lambda _: None, lambda _: None, lambda: None, lambda _: None
@@ -27,6 +32,13 @@ def window(core, app):
     window.show()
     app.processEvents()
     yield window
+    if (
+        window.worker
+        and hasattr(window.worker, "isRunning")
+        and hasattr(window.worker, "wait")
+        and window.worker.isRunning()
+    ):
+        window.worker.wait(2000)
     window.worker = None
     window.quit_application()
     app.processEvents()
@@ -356,12 +368,14 @@ def test_information_uses_left_glass_without_moving_orb(window, app):
     panel = window.visual_panel
     assert panel.isVisible() and panel.response.toPlainText() == window.current_reply
     assert "You: Explain the schematic" in window.wall_widget.conversation_label.text()
-    assert "The result is in the glass panel" in window.wall_widget.conversation_label.text()
-    assert window.current_reply not in window.wall_widget.conversation_label.text()
-    assert not window.wall_widget.content_label.text()
+    assert window.current_reply in window.wall_widget.conversation_label.text()
+    assert "local" in window.wall_widget.models_label.text().casefold()
     assert window.wall_widget.orb.pos() == original_orb
     assert panel.x() == window.screen().availableGeometry().left() + 24
-    orb = window.wall_widget.orb.geometry().translated(window.pos())
+    orb = QRect(
+        window.wall_widget.orb.mapToGlobal(QPoint(0, 0)),
+        window.wall_widget.orb.size(),
+    )
     assert not panel.geometry().intersects(orb)
     panel.dismiss()
     app.processEvents()
@@ -520,8 +534,8 @@ def test_chat_icon_opens_right_glass_and_moves_only_orb_then_restores_it(window,
         dashboard.input_bar,
         dashboard.conversation_label,
         dashboard.devices_label,
-        dashboard.weather_label,
-        dashboard.system_label,
+        dashboard.models_label,
+        dashboard.knowledge_label,
     ]
     original = [widget.geometry() for widget in fixed]
     orb, title = dashboard.orb.pos(), dashboard.title_label.pos()
@@ -530,11 +544,13 @@ def test_chat_icon_opens_right_glass_and_moves_only_orb_then_restores_it(window,
     dashboard.chat_button.click()
     app.processEvents()
     assert window.chat_panel.isVisible() and dashboard.chat_button.isChecked()
-    assert window.chat_panel.testAttribute(Qt.WA_TranslucentBackground)
+    assert not window.chat_panel.testAttribute(Qt.WA_TranslucentBackground)
     assert window.chat_panel.geometry().right() == 1920 - 25
     mic = dashboard.mic_label.mapToGlobal(dashboard.mic_label.rect().topLeft())
     assert window.chat_panel.geometry().bottom() < mic.y()
-    assert abs(dashboard.orb.geometry().center().x() - dashboard.rect().center().x()) <= 1
+    orb_center = dashboard.orb.mapTo(dashboard, dashboard.orb.rect().center())
+    assert orb_center.x() > dashboard.nav_bar.geometry().right()
+    assert orb_center.x() < dashboard.activity_feed.geometry().left()
     assert dashboard.orb.y() == orb.y()
     assert [widget.geometry() for widget in fixed] == original
     assert window.session == session and window.listener.engine.gate.awake
@@ -561,7 +577,7 @@ def test_chat_keeps_turns_updates_stream_and_separates_artifacts(window, app):
     window.current_reply = "A private email draft with many paragraphs."
     window.render()
     assert len(chat.messages) == 6
-    assert chat.messages[-1]["content"] == "The result is in the glass panel."
+    assert chat.messages[-1]["content"] == window.current_reply
     assert window.visual_panel.response.toPlainText() == window.current_reply
     original_results = window.visual_panel.pos()
     window.toggle_conversation()
@@ -578,6 +594,153 @@ def test_chat_keeps_turns_updates_stream_and_separates_artifacts(window, app):
     window.new_conversation()
     app.processEvents()
     assert not chat.messages and not chat.bubbles and chat.empty.isVisible()
+
+
+def test_front_page_navigation_is_visible_and_wired(window, app, monkeypatch):
+    from PySide6.QtTest import QSignalSpy
+
+    bar = window.wall_widget.nav_bar
+    assert bar.isVisible()
+    assert set(bar.buttons) == {
+        "overview", "conversation", "tasks", "learning", "tools", "devices",
+        "media", "voice", "email", "new", "mute", "settings"
+    }
+    # Observe the real button signal without opening the modal Connections dialog.
+    bar.requested.disconnect()
+    destinations = QSignalSpy(bar.requested)
+    bar.buttons["devices"].click()
+    assert destinations.count() == 1
+    assert destinations.at(0)[0] == "devices"
+    titles = {action.text() for action in bar.settings_menu.actions() if not action.isSeparator()}
+    assert {"Preferences, memories & learning", "Keyboard shortcuts", "Gmail account setup"} <= titles
+    opened = []
+    monkeypatch.setattr(window, "setup_connections", lambda: opened.append("devices"))
+    window.navigate_frontpage("devices")
+    assert opened == ["devices"]
+
+
+def test_center_monitor_selection_and_nisha_window_controls(window, app):
+    from types import SimpleNamespace
+
+    screens = [
+        SimpleNamespace(geometry=lambda: QRect(0, 0, 1920, 1080)),
+        SimpleNamespace(geometry=lambda: QRect(1920, 0, 1920, 1080)),
+        SimpleNamespace(geometry=lambda: QRect(3840, -420, 1080, 1920)),
+    ]
+    assert center_monitor(screens) is screens[1]
+    screen_geometry = window.screen().geometry()
+    assert window.minimize_button.accessibleName() == "Minimize NISHA to compact orbit view"
+    assert window.full_button.accessibleName() == "Toggle full-window mode"
+    assert window.close_button.accessibleName() == "Close NISHA"
+    dashboard = window.wall_widget
+    dashboard.set_conversation("Question " * 20, "Answer " * 60)
+    window.toggle_compact_mode()
+    app.processEvents()
+    assert window.compact_mode and dashboard.compact_mode
+    assert window.width() <= 420 and window.height() <= 320
+    assert dashboard.hero_card.isVisible() and dashboard.orbit_canvas.isVisible()
+    assert dashboard.conversation_label.isVisible()
+    assert not dashboard.nav_bar.isVisible() and not dashboard.activity_feed.isVisible()
+    assert not dashboard.voice_dock.isVisible() and not window.full_button.isVisible()
+    assert len(dashboard.conversation_label.text()) < len(dashboard.conversation_label.toolTip())
+    window.toggle_compact_mode()
+    app.processEvents()
+    assert not window.compact_mode and dashboard.nav_bar.isVisible()
+    window.toggle_full_window()
+    app.processEvents()
+    assert window.full_window and window.geometry() == screen_geometry
+    window.toggle_full_window()
+    app.processEvents()
+    assert not window.full_window and window.geometry().center() == screen_geometry.center()
+
+
+def test_panels_are_opaque_and_chat_always_scrolls_to_latest(window, app):
+    assert not window.visual_panel.testAttribute(Qt.WA_TranslucentBackground)
+    assert not window.chat_panel.testAttribute(Qt.WA_TranslucentBackground)
+    chat = window.chat_panel
+    chat.open()
+    for i in range(30):
+        chat.begin_turn()
+        chat.record(f"Question {i}", (f"Answer {i}. " * 12))
+    app.processEvents()
+    bar = chat.scroll.verticalScrollBar()
+    bar.setValue(0)
+    chat.begin_turn()
+    chat.record("Newest question", "Newest answer. " * 30)
+    app.processEvents()
+    assert bar.value() == bar.maximum()
+    assert window.speak_responses is True
+
+
+def test_main_window_has_full_opaque_hud_backdrop_and_responsive_footer(window, app):
+    image = window.grab().toImage()
+    corner = image.pixelColor(4, 4)
+    assert not window.testAttribute(Qt.WA_TranslucentBackground)
+    assert corner.alpha() == 255 and corner.red() < 32 and corner.blue() > corner.red()
+    for width, height in ((1366, 768), (1920, 1080)):
+        window.wall_widget.resize(width, height)
+        app.processEvents()
+        dashboard = window.wall_widget
+        assert not dashboard.nav_bar.geometry().intersects(dashboard.voice_dock.geometry())
+        assert not dashboard.activity_feed.geometry().intersects(dashboard.voice_dock.geometry())
+        assert dashboard.header.geometry().right() < dashboard.width() - 120
+        assert dashboard.hero_card.rect().contains(dashboard.orb.geometry())
+        assert dashboard.core_card.isVisible() and dashboard.quick_card.isVisible()
+
+
+def test_reference_style_dashboard_controls_have_real_targets(window, app):
+    from PySide6.QtTest import QSignalSpy
+
+    dashboard = window.wall_widget
+    assert dashboard.search_input.accessibleName() == "Search recent NISHA activity"
+    assert dashboard.send_button.accessibleName() == "Send message to NISHA"
+    assert dashboard.header_status.text().startswith("●")
+    assert set(dashboard.quick_buttons) == {
+        "/new", "show open windows", "list installed apps",
+        "what's the status of the devices?"
+    }
+    commands = QSignalSpy(dashboard.command_requested)
+    dashboard.quick_buttons["list installed apps"].click()
+    assert commands.count() == 1
+    assert commands.at(0)[0] == "list installed apps"
+    feed = dashboard.activity_feed
+    feed.add_event("Local search target", "A real recent activity entry.")
+    app.processEvents()
+    dashboard.search_input.setText("local search target")
+    app.processEvents()
+    feed._refresh()
+    assert "Local search target" in feed.output.toPlainText()
+    dashboard.search_input.setText("not present")
+    feed._refresh()
+    assert feed.output.toPlainText() == ""
+
+
+def test_orbit_animation_tracks_nisha_state_and_nodes_navigate(window, app):
+    from PySide6.QtTest import QSignalSpy, QTest
+
+    dashboard = window.wall_widget
+    orbit = dashboard.orbit_canvas
+    assert orbit.timer.isActive()
+    first_phase = orbit.phase
+    QTest.qWait(120)
+    assert orbit.phase != first_phase
+    dashboard.set_runtime_state("Thinking")
+    assert orbit.state == "Thinking"
+    assert len(dashboard.orbit_buttons) == 3
+    dashboard.nav_bar.requested.disconnect()
+    actions = QSignalSpy(dashboard.nav_bar.requested)
+    dashboard.orbit_buttons[0].click()
+    assert actions.count() == 1 and actions.at(0)[0] == "tasks"
+
+
+def test_orbit_overlay_has_no_ring_pixels(window, app):
+    from PySide6.QtGui import QImage
+
+    orbit = window.wall_widget.orbit_canvas
+    app.processEvents()
+    image = orbit.grab().toImage().convertToFormat(QImage.Format_ARGB32)
+    assert image.width() > 0 and image.height() > 0
+    assert image.pixelColor(image.width() // 2, image.height() // 2).alpha() == 0
 
 
 def test_repeated_identical_questions_get_separate_chat_bubbles(window, app):
@@ -628,13 +791,12 @@ def test_chat_keyboard_shortcut_closes_panel_without_resetting_session(window, a
 def test_visible_wake_acknowledges_without_resetting_history_or_pausing_mic(window, core):
     session = window.session
     core.store.exchange(session, "My project is NISHA", "I remember", cloud_allowed=False)
-    spoken = []
+    calls = []
     window.spoken_wake_enabled = True
-    window.start_speech = lambda text, mode: spoken.append((text, mode))
+    window.start_turn = lambda text, **kwargs: calls.append((text, kwargs))
     window.wake_received()
     window.acknowledge_wake()
-    assert spoken == [("Yes, Boss?", "wake")] and window.session == session
-    assert "Yes, Boss?" in window.wall_widget.conversation_label.text()
+    assert calls == [("Hey", {"voice": True})] and window.session == session
     assert len(core.store.history(session)[1]) == 2
     assert window.listener.engine.gate.awake and not window.listener.engine.blocked()
     assert not window.listener.engine.wake_only.is_set()
@@ -699,6 +861,7 @@ def test_wake_during_thinking_keeps_context_and_ignores_late_old_reply(window, c
     from time import monotonic, sleep
 
     ready, release = Event(), Event()
+    greetings = []
 
     def stream(*_):
         yield "An older response."
@@ -712,6 +875,7 @@ def test_wake_during_thinking_keeps_context_and_ignores_late_old_reply(window, c
     core.store.exchange(session, "We are building NISHA", "Understood", cloud_allowed=False)
     window.start_turn("Explain context")
     previous = window.worker
+    window.start_turn = lambda text, **kwargs: greetings.append((text, kwargs))
     try:
         deadline = monotonic() + 2
         while not ready.is_set() and monotonic() < deadline:
@@ -731,10 +895,10 @@ def test_wake_during_thinking_keeps_context_and_ignores_late_old_reply(window, c
         release.set()
         assert previous.wait(2000)
         app.processEvents()
-    assert window.current_reply == "Yes, Boss?"
+    assert greetings == [("Hey", {"voice": False})]
 
 
-def test_name_call_speaks_locally_without_new_model_turn_then_keeps_followups(
+def test_name_call_uses_local_model_then_keeps_followups(
     window, core, app, monkeypatch
 ):
     from nisha.voice import WindowsSpeech
@@ -754,10 +918,10 @@ def test_name_call_speaks_locally_without_new_model_turn_then_keeps_followups(
     window.acknowledge_wake()
     assert window.worker.wait(2000)
     app.processEvents()
-    assert spoken == ["Yes, Boss?"]
-    assert window.session == session and len(core.store.history(session)[1]) == 2
+    assert spoken == ["Hello Nishchal."]
+    assert window.session == session and len(core.store.history(session)[1]) == 4
     assert window.listener.engine.gate.awake and not window.listener.engine.wake_only.is_set()
-    assert not window.conversation_engaged
+    assert window.conversation_engaged
     calls = []
     window.start_turn = lambda text, **kwargs: calls.append((window.session, text))
     window.heard_command("How are you?")
@@ -863,7 +1027,7 @@ def test_background_first_wake_opens_quietly_second_gets_attention(window, core)
     window.wake_received()
     window.acknowledge_wake()
     assert window.voice_awake and window.listener.engine.gate.awake
-    assert spoken == [("Yes, Boss?", "wake")]
+    assert not spoken and commands == [("Hey",)]
     assert window.session == old and len(core.store.history(old)[1]) == 2
 
 
@@ -871,6 +1035,7 @@ def test_two_minutes_silence_returns_idle_without_hiding_or_losing_context(windo
     time = [1000.0]
     window.conversation_clock = lambda: time[0]
     window.listener.engine.gate.clock = lambda: time[0]
+    window.start_turn = lambda *_args, **_kwargs: None
     old = window.session
     core.store.exchange(old, "Our topic", "Our answer", cloud_allowed=False)
     window.wake_received()
@@ -893,6 +1058,12 @@ def test_long_reply_finishes_before_inactivity_countdown_begins(window):
     time = [1000.0]
     window.conversation_clock = lambda: time[0]
     window.listener.engine.gate.clock = lambda: time[0]
+
+    def begin_wake_reply(*_args, **_kwargs):
+        window.pending_wake_ack = False
+        window.last_conversation_activity = time[0]
+
+    window.start_turn = begin_wake_reply
     window.wake_received()
     window.worker = SimpleNamespace(isRunning=lambda: True, isInterruptionRequested=lambda: False)
     time[0] += 300

@@ -64,6 +64,7 @@ def test_api_requires_auth_and_enforces_cloud_policy(core, monkeypatch):
     assert client.get("/coding/candidates").status_code == 401
     assert client.get("/diagnostics").status_code == 401
     assert client.post("/computer/screen", json={}).status_code == 401
+    assert client.post("/computer/click", json={"target": "Search"}).status_code == 401
     assert client.post("/terminal/prepare", json={}).status_code == 401
     assert client.post("/terminal/stop").status_code == 401
     assert client.get("/terminal/patches/" + "a" * 32).status_code == 401
@@ -119,6 +120,13 @@ def test_api_requires_auth_and_enforces_cloud_policy(core, monkeypatch):
     screen = client.post("/computer/screen", json={"question": "Which app is open?"})
     assert screen.status_code == 200
     assert screen.json() == {"description": "Local screen result: Which app is open?"}
+    core.screen.visual_click = lambda target, controller: f"Clicked {target} locally."
+    visual_click = client.post("/computer/click", json={"target": "Search icon"})
+    assert visual_click.status_code == 200
+    assert visual_click.json() == {"result": "Clicked Search icon locally."}
+    assert client.post(
+        "/computer/click", json={"target": "Search", "coordinates": [10, 20]}
+    ).status_code == 422
     session = client.post("/sessions").json()["session_id"]
     rejected = client.post("/chat", json={"text": "Hi", "session_id": session, "model": "cloud"})
     assert rejected.status_code == 400 and core.gateway.calls == []

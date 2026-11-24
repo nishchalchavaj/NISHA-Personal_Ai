@@ -205,10 +205,9 @@ class NishaCore:
             if wake:
                 text = text[wake.end() :].strip(" ,.!?:;")
                 if not text:
-                    reply = "Yes, Boss?"
-                    self.store.exchange(session, "NISHA", reply, cloud_allowed=False)
-                    yield reply
-                    return
+                    # A wake-only greeting continues as an ordinary LLM turn so
+                    # its response can use the same conversation history as text.
+                    text = "Hey"
             if uncertain:
                 self.speech_pending[session] = {"text": text, "expires": monotonic() + 120}
                 reply = f"I heard '{text}', but the audio wasn't clear. Say 'confirm command' to use that exact wording, or repeat your request."
@@ -257,28 +256,28 @@ class NishaCore:
                 action_reply = self.preferences.handle(text)
             if action_reply is None:
                 action_reply = self.knowledge.handle(text)
-            if action_reply is None and self.settings.instant_smalltalk:
-                from nisha.responsiveness import quick_reply
-
-                previous_reply = history[-1]["content"] if history else ""
-                fast_choice = self.reinforcement.choose(
-                    text, self.preferences.all(), previous_reply=previous_reply
-                )
-                fast = quick_reply(text, fast_choice[1] if fast_choice else "warm", previous_reply)
-                if fast:
-                    turn_id = self.store.exchange(session, text, fast, cloud_allowed=False)
-                    self.reinforcement.record(session, turn_id, fast_choice, text, fast)
-                    self._latest_assistant_context[session] = fast
-                    yield fast
-                    return
             if action_reply is None:
                 from nisha.dialogue import is_action_intent, resolve_followup, unsupported_action
                 from nisha.responsiveness import action_request
 
                 # A running background action must not hold up ordinary conversation.
                 action_text = resolve_followup(text, history)
-                acquired = self._action_lock.acquire(
-                    blocking=action_request(action_text) or self.automation.matches_trigger(action_text)
+                should_dispatch = action_request(action_text) or self.automation.matches_trigger(
+                    action_text
+                )
+                choice = self.reinforcement.choose(
+                    text,
+                    self.preferences.all(),
+                    previous_reply=history[-1]["content"] if history else "",
+                )
+                is_social_turn = bool(
+                    self.settings.instant_smalltalk and choice and choice[0].startswith("social_")
+                )
+                # Preserve contextual action handlers for terse follow-ups when idle, but
+                # never make ordinary conversation wait behind another desktop action.
+                try_router = should_dispatch or not is_social_turn
+                acquired = (
+                    self._action_lock.acquire(blocking=should_dispatch) if try_router else False
                 )
                 if acquired:
                     try:
@@ -299,11 +298,6 @@ class NishaCore:
                 yield action_reply
                 return
             memories = self.memory.search(text, limit=8)
-            choice = self.reinforcement.choose(
-                text,
-                self.preferences.all(),
-                previous_reply=history[-1]["content"] if history else "",
-            )
             messages = self.context.build(
                 session,
                 text,
@@ -343,7 +337,51 @@ class NishaCore:
         from nisha.dialogue import strip_trailing_address
 
         text = strip_trailing_address(text)
-        from nisha.screen import screen_question
+        from nisha.orchestration import split_compound
+
+        steps = split_compound(text)
+        if len(steps) == 1 and steps[0].casefold() == text.casefold():
+            # A single action after a conversational preface is routed intact.
+            steps = []
+        if steps:
+            if len(steps) > 8:
+                return "That request has more than eight steps. Please split it into shorter sequences."
+            results = []
+            for index, step in enumerate(steps, 1):
+                self.check_cancelled()
+                result = self.handle_action(step, session, history, alias)
+                if result is None:
+                    from nisha.dialogue import unsupported_action
+
+                    result = unsupported_action(step)
+                results.append(f"Step {index}: {step}\n{result}")
+                if re.search(
+                    r"\b(?:i couldn't|i could not|i haven't done|nothing was|isn't connected|isn't configured|needs .* approval)\b",
+                    result,
+                    re.IGNORECASE,
+                ):
+                    results.append("Remaining steps stopped because this step needs attention.")
+                    break
+            self.store.audit("compound_action", f"{len(results)} result lines")
+            return "\n\n".join(results)
+        from nisha.live_info import (
+            current_datetime_reply,
+            current_datetime_request,
+            live_news_query,
+        )
+
+        if current_datetime_request(text):
+            return current_datetime_reply()
+        from nisha.screen import screen_question, visual_click_request
+
+        if (target := visual_click_request(text)) is not None:
+            try:
+                result = self.screen.visual_click(target, self.pc_control)
+            except (NishaError, OSError, ValueError) as exc:
+                self.store.audit("visual_computer_action", "failed")
+                return f"I couldn't safely click that screen target: {exc}"
+            self.store.audit("visual_computer_action", "completed")
+            return result
 
         if (question := screen_question(text)) is not None:
             try:
@@ -388,6 +426,19 @@ class NishaCore:
                 f"{item['title']}: {item['url']}" for item in result["sources"]
             )
             return result["summary"] + ("\n\nSources:\n" + sources if sources else "")
+        if query := live_news_query(text):
+            try:
+                result = self.research_agent.live_news(query)
+            except NishaError as exc:
+                return f"I couldn't retrieve live news: {exc}"
+            if not result["headlines"]:
+                return f"No recent headlines were returned for {query}. Search checked at {result['searched_at']}."
+            lines = [f"Recent headlines for {query} (searched {result['searched_at']}; publication times shown when available):"]
+            lines.extend(
+                f"{i}. {item['title']} — {item['source']} · {item['published']}\n   {item['url']}"
+                for i, item in enumerate(result["headlines"], 1)
+            )
+            return "\n".join(lines)
         if re.fullmatch(r"(?:please )?debug last failure", text.strip().strip(".!?"), re.IGNORECASE):
             result = self.diagnostics.debug()
             observations = result["observations"]
@@ -484,10 +535,15 @@ class NishaCore:
             return self.weather.current(location)
         if music_action := spotify_request(text, self.current_surface.get(session, "")):
             self.music.desktop = self.workflows.desktop
-            reply = (
-                self.music.open() if music_action == "open"
-                else self.music.play(open_first=music_action == "open_play")
-            )
+            if music_action.startswith("search_play:"):
+                reply = self.music.search_and_play(
+                    music_action.partition(":")[2], open_first=True
+                )
+            else:
+                reply = (
+                    self.music.open() if music_action == "open"
+                    else self.music.play(open_first=music_action == "open_play")
+                )
             if getattr(self.music, "last_window_visible", False) or reply.startswith(
                 ("Focused and verified ", "Spotify shows ", "Clicked Spotify's ")
             ):
@@ -579,9 +635,10 @@ class NishaCore:
         surface = self.current_surface.get(session, "")
         if search and surface.casefold() in {"chrome", "google chrome", "edge", "microsoft edge"}:
             try:
-                self.workflows.desktop.search_in_browser(surface.casefold(), search[1])
-                self.browser_searches[session] = (surface.casefold(), search[1])
-                return f"Asked {surface} to search for {search[1]}."
+                query = search[1]
+                self.workflows.desktop.search_in_browser(surface.casefold(), query)
+                self.browser_searches[session] = (surface.casefold(), query)
+                return f"Asked {surface} to search for {query}."
             except (NishaError, OSError) as exc:
                 return f"I couldn't search in {surface}: {exc}"
         reply = self.pc_control.handle(text, current_app=self.current_surface.get(session))

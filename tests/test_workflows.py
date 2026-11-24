@@ -25,6 +25,12 @@ class Desktop:
 class Mailer:
     def __init__(self):
         self.sent = []
+        self.messages = []
+        self.fetch_options = []
+
+    def recent_messages(self, **options):
+        self.fetch_options.append(options)
+        return self.messages
 
     def send_email(self, recipient, subject, body):
         self.sent.append((recipient, subject, body))
@@ -67,6 +73,35 @@ def test_historical_contextual_email_requests_create_actual_pending_drafts(workf
     pending = core.store.pending_email(session)
     assert pending and "nothing sent" in response and not mailer.sent and not desktop.opened
     assert (core.workflows.workspace / f"email-{pending['token']}.json").is_file()
+
+
+def test_batch_replies_make_local_review_file_for_each_today_message(workflows):
+    core, _, mailer = workflows
+    mailer.messages = [
+        {
+            "sender": "A <a@example.test>", "recipient": "a@example.test",
+            "subject": "Class notes", "body": "Can you share the notes?",
+            "message_id": "<a@example.test>", "references": "",
+        },
+        {
+            "sender": "B <b@example.test>", "recipient": "b@example.test",
+            "subject": "Meeting", "body": "Are you available tomorrow?",
+            "message_id": "<b@example.test>", "references": "",
+        },
+    ]
+    core.generate_content = lambda *args: json.dumps(
+        {"subject": "Reply", "body": "Thanks, I will check and get back to you."}
+    )
+    session = core.new_session()
+    result = core.chat("check all new email and write draft reply for all", session)
+    assert "Prepared 2 local reply draft(s)" in result
+    assert "nothing was sent" in result
+    assert mailer.fetch_options == [{"unread_only": True, "limit": 10}]
+    assert not mailer.sent and not core.store.pending_email(session)
+    batch = next(core.workflows.workspace.glob("email-replies-*.json"))
+    drafts = json.loads(batch.read_text(encoding="utf-8"))
+    assert [item["recipient"] for item in drafts] == ["a@example.test", "b@example.test"]
+    assert all(item["subject"].startswith("Re:") for item in drafts)
 
 
 def test_local_smart_outage_falls_back_before_saving_and_opening_one_artifact(workflows):

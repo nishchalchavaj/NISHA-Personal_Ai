@@ -2,6 +2,9 @@
 
 import ipaddress
 import json
+import xml.etree.ElementTree as ET
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 import httpx
@@ -94,11 +97,62 @@ class WebResearchAgent:
             self.store.audit("web_research", "results" if sources else "no_results")
         return {
             "query": query,
+            "searched_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "scope": "explicit query sent to the configured SearXNG endpoint; no project files or conversation history attached",
             "source_count": len(sources),
             "sources": sources,
             "limitations": "Search snippets are unverified summaries, not full-page research.",
         }
+
+    def live_news(self, query):
+        """Fetch recent headline metadata only; send the public query, no chat context."""
+        if not isinstance(query, str) or not 2 <= len(query.strip()) <= 500:
+            raise NishaError("Give a public news query in 2–500 characters.")
+        query = query.strip()
+        owned = self.client is None
+        client = self.client or httpx.Client(
+            timeout=self.SEARCH_TIMEOUT_SECONDS,
+            trust_env=False,
+            follow_redirects=False,
+        )
+        try:
+            response = client.get(
+                "https://news.google.com/rss/search",
+                params={"q": query + " when:1d", "hl": "en-IN", "gl": "IN", "ceid": "IN:en"},
+            )
+            response.raise_for_status()
+            body = response.content
+            if len(body) > self.MAX_RESPONSE_BYTES:
+                raise NishaError("The live news feed exceeded the 2 MB limit.")
+            root = ET.fromstring(body)
+            headlines = []
+            for item in root.findall("./channel/item")[:self.MAX_RESULTS]:
+                title = (item.findtext("title") or "").strip()
+                url = self._public_source_url((item.findtext("link") or "").strip())
+                source = (item.findtext("source") or "News source").strip()
+                published = (item.findtext("pubDate") or "").strip()
+                if not title or not url:
+                    continue
+                try:
+                    published = parsedate_to_datetime(published).astimezone().strftime(
+                        "%d %b %Y, %I:%M %p %Z"
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    published = "publication time unavailable"
+                headlines.append({"title": title[:300], "source": source[:120], "url": url, "published": published})
+            return {
+                "query": query,
+                "searched_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "headlines": headlines,
+                "scope": "Only the public news query was sent; no conversation, memory or project files were attached.",
+            }
+        except NishaError:
+            raise
+        except (httpx.HTTPError, ET.ParseError, ValueError, TypeError) as exc:
+            raise NishaError("I couldn't retrieve live news right now.") from exc
+        finally:
+            if owned:
+                client.close()
 
     def research(self, query, core, session, alias="auto"):
         result = self.search(query)

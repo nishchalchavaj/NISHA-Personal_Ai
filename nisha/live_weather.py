@@ -7,10 +7,9 @@ import httpx
 
 def weather_request(text):
     value = text.casefold().strip(" .!?")
-    if not re.search(r"\bweather\b", value) or (
-        re.search(r"\b(?:what is weather|define weather)\b", value)
-        and not re.search(r"\b(?:now|today|current|outside)\b", value)
-    ):
+    if not re.search(r"\bweather\b", value):
+        return None
+    if re.search(r"\bdefine weather\b|\bwhat does weather mean\b", value):
         return None
     if not re.search(r"\b(?:weather|temperature|forecast)\b", value):
         return None

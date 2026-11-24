@@ -53,7 +53,16 @@ To start hidden manually, run `.\scripts\start.ps1 -Background`.
 Services started by an on-demand NISHA process stop with that process. An independently
 started gateway stays available after NISHA quits. Stop it with
 `.\scripts\stop_gateway.ps1`; a manually started gateway is stopped with Ctrl+C in its terminal.
-The desktop retains the original transparent teal dashboard and large orb. Type a question
+The desktop opens on the monitor nearest the center of the extended desktop, with the
+full opaque Jarvis-style command center and large teal orb. The minimize control docks a
+small orbit-and-conversation view at the bottom corner of the center monitor; click its
+restore arrow to return to the full dashboard. Colored orbit controls open Tasks, Memory,
+or microphone controls, and the rings react to listening, speaking, thinking and mute state.
+The dashboard includes a live
+core overview, local CPU/memory/disk meters, memory and configured-model cards, quick
+commands, a searchable activity feed, and a persistent voice/text dock. NISHA window tasks can target
+open windows across the connected displays. The top-right controls minimize NISHA, toggle
+full-window mode, or close it. Type a question
 and press Enter, or say **"NISHA, ..."**. The desktop starts listening automatically.
 Say **"Hey NISHA"** or **"NISHA"** on its own to wake her, then ask your question. Neesha,
 Nishaa, Nisa and Meesha also work, with or without "Hey". Follow-ups keep listening until
@@ -104,8 +113,10 @@ visible app windows. NISHA checks their actual state and reports any that stay o
 Closing uses normal Windows close requests, so unsaved documents can show a save prompt.
 NISHA retains its own window and background listener.
 F9 switches wall/table layouts; F10 switches
-monitor/projector output. Ctrl+N starts a new conversation; Ctrl+Shift+S toggles spoken
-replies to typed questions. Voice questions receive spoken replies.
+monitor/projector output. Ctrl+N starts a new conversation. Typed and voice replies are
+spoken by default; microphone mute controls input and does not silence NISHA's replies.
+The front-page bar provides direct access to chat, new conversations, microphone input,
+devices/projects, learning, voice, media, email and settings.
 
 For text only, with no audio dependency:
 
@@ -393,17 +404,41 @@ explicitly named app or website switches the context to it.
 These commands use Windows accessibility controls in the currently open app. NISHA reports
 when an app hides a control or the effect cannot be verified. General UI control does not
 send messages, buy, publish, subscribe, delete, or submit forms; use a reviewed workflow.
+When an app does not expose accessible controls, you can also say **"click the search icon
+on screen"** or **"tap the close icon on my screen"**. NISHA captures the extended desktop
+and sends it with the target description only to the verified local Ollama vision model, estimates one
+point, and clicks once if confidence is at least 90%. It blocks targets that look like
+sign-in, submission, purchase, deletion, installation or other sensitive actions, then
+rechecks that the screen has not changed while it was finding the target and captures one
+new frame after the click to check whether the pixels changed. That check does not prove the
+requested task succeeded; NISHA never retries a visual click automatically. The screen
+image is not saved by this feature. Coordinate mismatch, ambiguous targets and low confidence
+fail closed. The click is mapped to Windows' virtual-desktop coordinates, including monitors
+with negative origins. This is a one-click visual fallback, not an autonomous multi-step computer agent.
 **"Open Chrome"** now checks whether Chrome is the foreground window before claiming it is.
 **"Open Spotify and play song"** looks for Spotify's accessible Play button and checks
 whether it changes to Pause; this verifies the app control state, not audible output.
-Current weather questions query Open-Meteo and include the place and model time.
-The default place is Nargund, Karnataka; a named place overrides it. If the live service
-fails, NISHA says so instead of giving a remembered forecast. A weather query sends the
-place name to Open-Meteo.
+NISHA can also route a direct sequence such as **"open Chrome, search for lecture notes,
+then open the first result"** through its existing app, website and browser controls. It
+reports each step and stops when one fails or needs attention; it does not invent a plan
+for controls an app does not expose. A mood request such as **"I'm stressed after college,
+so play some song in Spotify"** searches Spotify for calming music and plays a result only
+when one accessible Play control is uniquely identifiable. Otherwise it leaves the search
+results open for you to choose.
+Requests for today's date or local time are answered from the PC clock, and the current
+local date/time is included in the LLM context. Current weather questions query Open-Meteo
+and include the place and model time. The default place is Nargund, Karnataka; a named
+place overrides it. If the live service fails, NISHA says so instead of giving a remembered
+forecast. A weather query sends the place name to Open-Meteo. Latest-news requests fetch
+headline metadata published within the last day from Google News RSS, show publication times
+and source links, and send only the public query; no chat history, memories or project files
+are included. If news retrieval fails, NISHA reports that rather than inventing current news.
 
 Artifacts live under `data/workspace`. Writing uses the local smart model and can take
 longer than short conversation replies. Some apps and websites do not expose their controls
-to Windows accessibility; multi-step task planning across every app remains future work.
+to Windows accessibility. Explicit sequences through supported app and browser actions are
+routed in order; autonomous planning for arbitrary workflows and inaccessible controls
+remain future work.
 
 ## Devices, projects and saved routines
 
@@ -447,6 +482,10 @@ and sent no real email.
 reply to a specific selected message. Inbox access is read-only; threading and content
 are bound to the exact draft approval. Ctrl+E still reviews before sending. See the
 [Gmail context guide](docs/connections.md#gmail-context-and-replies) for bounds and privacy.
+**“Check new email and draft replies for all”** checks up to ten unread messages without
+marking them read, then prepares local review drafts for messages with one unambiguous reply
+address. NISHA shows the drafts in chat and saves them together in a local JSON file. These
+batch drafts are not Gmail Drafts and cannot be sent by that batch action; nothing is sent.
 
 ## Approved file tools
 
@@ -485,6 +524,7 @@ your `.env`. Gateway and Core use different authentication keys.
 | `DELETE /memories/{id}` | Forget a selected memory |
 | `GET /tools` | Discover the registered workspace tools and their confirmation requirements |
 | `POST /computer/screen` | Capture and analyze the current screen with the configured local vision model; optional JSON `{ "question": "..." }` |
+| `POST /computer/click` | Locate and click one user-named primary-screen target using local vision; JSON `{ "target": "Search icon" }`; one click only |
 | `POST /tools/propose` | `{ "action": "read_file", "path": "note.txt" }` |
 | `POST /tools/confirm` | `{ "approval_id": "...", "approved": true }` |
 | `GET /projects` | List configured project folders |
@@ -598,17 +638,23 @@ real Gmail account still require your local setup.
   **"refresh installed apps"** use the local inventory. Launching an app does not
   grant arbitrary control of that app or approve sending tasks to cloud models.
   **"show app capabilities"** lists the currently supported adapters.
-- Requested information, drafts, code and visuals use a scrollable glass results
-  window on the left. Everyday conversation stays below the orb. Opening results
-  keeps the original orb and title in their existing positions. The orb is teal
+- The wall dashboard uses a full-window dark HUD backdrop with a subtle grid, reactor
+  rings and colored state-reactive animated orbits, framing marks, working navigation, real local model/memory/device/task cards,
+  local CPU/memory/disk meters, quick command buttons, a searchable activity feed, and
+  a persistent voice/text dock. It displays queued, running, cancelled and completed actions,
+  along with the latest conversation and result summary. Chat history automatically follows
+  the newest message. NISHA speaks typed replies and action receipts by default. The orb is teal
   when listening, speaking or idle, and dark blue while thinking.
-  Click the small chat icon beside the microphone, or press **Ctrl+J**, to show
-  the floating glass conversation window on the right. Your messages appear on
-  the right and NISHA's on the left, with live replies and scrollable session
-  history. Requested information and drafts stay in the left results panel.
-  Only the orb and its title move to the center while chat is open, then return
-  to their original positions when chat closes. Closing chat keeps listening
-  and the current conversation active; a new conversation clears its chat view.
+  Click the conversation icon beside the microphone, or press **Ctrl+J**, to show
+  the opaque scrollable conversation window. The right-side activity feed has controls to
+  filter conversation/tasks and cancel queued or running work. The left rail opens the
+  actual settings, memory, tool, device, voice, email and media workflows; it does not show
+  placeholder agents or invented telemetry. The window opens on the center monitor by
+  default, while desktop window controls work across the extended display. F9/F10 retain
+  the wall/table and monitor/projector options.
+  The minimize control switches to a small bottom-corner orbit view showing the latest
+  exchange; its restore arrow brings the dashboard back. Orbit nodes navigate to Tasks,
+  Memory and Microphone controls, and orbit color/speed responds to NISHA's runtime state.
   Manual opening waits for attention with NISHA or Hey NISHA; hiding the window
   returns to wake-word listening. Images are described by the
   local **Moondream** model and narrated

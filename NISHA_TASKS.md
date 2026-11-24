@@ -18,3 +18,16 @@
 - [x] COMPLETED: Verify Windows Sandbox after the user enabled the feature and restarted the PC.
 - [x] COMPLETED: Run a real offline guest command through NISHA; verify local patch output, unchanged host input, and per-job cleanup.
 - [x] COMPLETED: Run post-integration focused adversarial stress tests (33 passed) and full regression (837 passed, 2 existing warnings); audit remaining master-spec boundaries and record them.
+- [x] COMPLETED: Add explicit screenshot-grounded single-click control for inaccessible UI targets, using verified local vision, confidence/bounds checks, sensitive-target refusal, single-action/no-retry behavior, and post-click screenshot-change reporting.
+- [x] COMPLETED: Make results visible on the desktop front page, make floating panels opaque, add direct settings/navigation buttons, automatically follow the latest chat message, and speak typed replies and action completion receipts.
+- [x] COMPLETED: Build the functional Jarvis command center with live activity and cancellation, choose the center monitor, operate on the extended desktop, add minimize/full-window/close controls, and avoid per-token dashboard database refreshes.
+- [x] COMPLETED: Refine the command center against the new visual reference with real local meters, searchable activity, model/memory/device cards, functional quick actions, and a persistent voice/text dock.
+- [x] COMPLETED: Add state-reactive colored orbit animation with functional Tasks/Memory/Microphone nodes, and change minimize to a compact corner orbit/conversation view with restore.
+- [x] COMPLETED: Run the complete regression suite after the dashboard and multi-monitor changes: 863 passed, 2 existing warnings.
+- [x] COMPLETED: Remove the visible rings around NISHA's orb while preserving the animated functional shortcut controls.
+- [x] COMPLETED: Improve the existing conversation system with LLM-generated greetings, bounded summaries of both sides of a conversation, relevant prior-session summary retrieval, and follow-up/correction/topic-change coverage.
+- [x] COMPLETED: Preserve explicit multi-command sequencing and support clear single actions embedded after natural conversational prefaces; verify local email review drafts remain unsent and capped at ten.
+- [x] COMPLETED: Fix action routing so ordinary social conversation uses the LLM and doesn't wait behind desktop actions while existing browser, email, approval, research, and contextual handlers remain functional.
+- [x] COMPLETED: Run final full regression (**878 passed, 2 warnings in 254.88s**), Ruff, compileall and diff checks.
+- [x] COMPLETED: Fix current date/time, question-form live weather, automatic recent-news retrieval, and Spotify open-and-play context; verify **884 full-suite tests** and live public news/weather endpoints.
+- [ ] REMAINING: General multi-step visual computer-use planning and live target-app validation are not implemented; current visual control is one user-directed click per request.

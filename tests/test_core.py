@@ -11,6 +11,7 @@ def test_local_conversation_persists_complete_exchange(core):
     assert [t["role"] for t in history] == ["user", "assistant"]
     assert all(not t["cloud_allowed"] for t in history)
     assert core.gateway.calls[0][0] == "local_fast"
+    assert "Current local date and time:" in core.gateway.calls[0][1][0]["content"]
 
 
 def test_cloud_requires_explicit_approval_before_any_request(core):
@@ -92,6 +93,76 @@ def test_successful_summary_is_persisted_without_deleting_turns(core):
     assert state["summary"] == "The user is developing NISHA."
     assert state["summarized_until"] > 0
     assert len(history) == 12
+
+
+def test_compaction_sends_user_and_assistant_turns_to_local_summary_model(core):
+    captured = []
+
+    def summarize(alias, messages):
+        captured.append((alias, messages))
+        return "Rescue robot: NISHA suggested testing motor torque before payload validation."
+
+    core.gateway.complete = summarize
+    session = core.new_session()
+    core.store.exchange(session, "I am building a rescue robot with a drone.", "That sounds useful.", False)
+    core.store.exchange(session, "I changed the motor.", "I recommended checking torque before payload tests.", False)
+    for number in range(3):
+        core.store.exchange(session, f"Additional project note {number}.", "Noted.", False)
+
+    core.chat("Will it still carry the payload?", session)
+
+    assert captured and captured[0][0] == "local_fast"
+    transcript = captured[0][1][1]["content"]
+    assert '"role": "assistant"' in transcript
+    assert "checking torque before payload tests" in transcript
+    state, _ = core.store.history(session)
+    assert "NISHA suggested testing motor torque" in state["summary"]
+
+
+def test_recent_turns_and_corrections_are_preserved_for_followups(core):
+    session = core.new_session()
+    core.chat("I am building a rescue robot with a drone.", session)
+    core.chat("Correction: the drone is a separate test platform.", session)
+    core.chat("Will it carry the payload?", session)
+
+    messages = core.gateway.calls[-1][1]
+    transcript = "\n".join(message["content"] for message in messages)
+    assert "rescue robot with a drone" in transcript
+    assert "the drone is a separate test platform" in transcript
+    assert "Will it carry the payload?" in transcript
+    assert [message["role"] for message in messages[-5:]] == [
+        "user", "assistant", "user", "assistant", "user"
+    ]
+
+
+def test_relevant_old_conversation_summary_is_retrieved_without_transcript(core):
+    prior = core.new_session()
+    core.store.exchange(prior, "Private full transcript marker 9f31", "Private reply marker 9f31", False)
+    core.store.save_summary(
+        prior,
+        "Rescue robot project uses a compact ground vehicle and drone. NISHA previously suggested testing motor torque before payload validation.",
+        2,
+    )
+    current = core.new_session()
+
+    core.chat("Do you remember the rescue robot? What did you recommend?", current)
+
+    prompt = "\n".join(message["content"] for message in core.gateway.calls[-1][1])
+    assert "compact ground vehicle and drone" in prompt
+    assert "testing motor torque" in prompt
+    assert "Private full transcript marker 9f31" not in prompt
+    assert "Private reply marker 9f31" not in prompt
+
+
+def test_unrelated_topic_does_not_inject_old_project_summary(core):
+    prior = core.new_session()
+    core.store.save_summary(prior, "Rescue robot motor and drone payload constraints.", 2)
+    current = core.new_session()
+
+    core.chat("Explain how photosynthesis works.", current)
+
+    prompt = "\n".join(message["content"] for message in core.gateway.calls[-1][1])
+    assert "Rescue robot motor" not in prompt
 
 
 def test_correcting_keyed_memory_replaces_old_value(core):

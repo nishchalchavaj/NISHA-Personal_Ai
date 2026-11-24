@@ -58,7 +58,7 @@ class ConversationPanel(QWidget):
     def __init__(self, parent):
         super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setWindowTitle("NISHA Conversation")
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
         self.messages = []
         self.bubbles = []
         self.current_pair = None
@@ -105,8 +105,8 @@ class ConversationPanel(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         gradient = QLinearGradient(0, 0, self.width(), self.height())
-        gradient.setColorAt(0, QColor(20, 47, 52, 205))
-        gradient.setColorAt(1, QColor(8, 22, 29, 180))
+        gradient.setColorAt(0, QColor(20, 47, 52, 255))
+        gradient.setColorAt(1, QColor(8, 22, 29, 255))
         painter.setBrush(gradient)
         painter.setPen(QPen(QColor(100, 235, 213, 115), 1))
         painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 20, 20)
@@ -145,9 +145,7 @@ class ConversationPanel(QWidget):
     def record(self, user, reply, results=False):
         if not user and not reply:
             return
-        scrollbar = self.scroll.verticalScrollBar()
-        at_bottom = scrollbar.value() >= scrollbar.maximum() - 8
-        answer = "The result is in the glass panel." if results and reply else reply
+        answer = reply
         if self.current_pair is None or self.current_pair[0] != user:
             if user:
                 self._append("user", user)
@@ -158,8 +156,7 @@ class ConversationPanel(QWidget):
             if self.messages[index]["content"] != answer:
                 self.messages[index]["content"] = answer
                 self.bubbles[index].set_text(answer)
-        if at_bottom:
-            QTimer.singleShot(0, self._scroll_to_bottom)
+        QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _append(self, role, content):
         self.empty.hide()

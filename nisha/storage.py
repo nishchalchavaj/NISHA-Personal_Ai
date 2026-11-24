@@ -84,6 +84,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '',
                     summarized_until INTEGER NOT NULL DEFAULT 0);
+                CREATE VIRTUAL TABLE IF NOT EXISTS conversation_summary_search USING fts5(
+                    session_id UNINDEXED, summary, updated_at UNINDEXED);
                 CREATE TABLE IF NOT EXISTS turns (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
                     role TEXT NOT NULL, content TEXT NOT NULL,
@@ -130,6 +132,15 @@ class Store:
                     request TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL,
                     created_at TEXT NOT NULL);
             """)
+            # Backfill summaries written before the searchable conversation index existed.
+            for row in db.execute(
+                "SELECT id,summary FROM sessions WHERE summary!='' "
+                "AND id NOT IN (SELECT session_id FROM conversation_summary_search)"
+            ):
+                db.execute(
+                    "INSERT INTO conversation_summary_search VALUES(?,?,?)",
+                    (row["id"], row["summary"], now()),
+                )
 
     @contextmanager
     def connect(self):
@@ -175,6 +186,42 @@ class Store:
                 "UPDATE sessions SET summary=?, summarized_until=? WHERE id=?",
                 (summary, until, session),
             )
+            db.execute(
+                "DELETE FROM conversation_summary_search WHERE session_id=?", (session,)
+            )
+            if summary.strip():
+                db.execute(
+                    "INSERT INTO conversation_summary_search VALUES(?,?,?)",
+                    (session, summary, now()),
+                )
+
+    def relevant_summaries(self, text, exclude_session, limit=2, include_recent=False):
+        """Retrieve a few local summaries; never load another conversation's full transcript."""
+        words = [
+            word
+            for word in re.findall(r"[a-z0-9]+", text.casefold())
+            if len(word) > 2 and word not in MEMORY_STOP_WORDS
+        ][:20]
+        query = " OR ".join('"' + word + '"' for word in words)
+        with self.connect() as db:
+            if query:
+                rows = db.execute(
+                    "SELECT session_id,summary,updated_at FROM conversation_summary_search "
+                    "WHERE conversation_summary_search MATCH ? AND session_id!=? "
+                    "ORDER BY rank LIMIT ?",
+                    (query, exclude_session, limit),
+                ).fetchall()
+                if rows:
+                    return [dict(row) for row in rows]
+            if not include_recent:
+                return []
+            rows = db.execute(
+                "SELECT s.session_id,s.summary,s.updated_at "
+                "FROM conversation_summary_search s "
+                "WHERE s.session_id!=? ORDER BY s.updated_at DESC LIMIT ?",
+                (exclude_session, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
 
     def remember(
         self, text, key=None, category="fact", cloud_allowed=False, source="explicit_user"
@@ -300,6 +347,10 @@ class Store:
                 (cutoff,),
             )
             db.execute("DELETE FROM turns WHERE session_id NOT IN (SELECT id FROM sessions)")
+            db.execute(
+                "DELETE FROM conversation_summary_search "
+                "WHERE session_id NOT IN (SELECT id FROM sessions)"
+            )
             db.execute(
                 "DELETE FROM sessions WHERE id IN (SELECT session_id FROM user_observations "
                 "GROUP BY session_id HAVING MAX(created_at) < ?) "

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from nisha.connections import Routine
+from nisha.live_info import current_datetime_reply, current_datetime_request
 from nisha.live_weather import LiveWeather, weather_request
 from nisha.music import SpotifyControl, spotify_request
 from nisha.pc_control import PCControl
@@ -59,6 +60,26 @@ def test_live_weather_is_sourced_and_not_guessed(core):
     result = core.chat("weather in Nargonda", core.new_session())
     assert "24.5°C" in result and "Open-Meteo" in result
     assert client.calls[0][1]["countryCode"] == "IN"
+    assert not core.gateway.calls
+
+
+def test_question_worded_weather_request_still_uses_live_weather(core):
+    client = WeatherClient()
+    core.weather = LiveWeather(client)
+    assert weather_request("What is weather in Nargonda?") == "Nargund"
+    result = core.chat("What is weather in Nargonda?", core.new_session())
+    assert "24.5°C" in result and "Open-Meteo" in result
+    assert not core.gateway.calls
+
+
+def test_current_date_and_time_are_answered_from_local_clock(core):
+    from datetime import UTC, datetime
+
+    fixed = datetime(2026, 11, 24, 9, 5, tzinfo=UTC)
+    assert current_datetime_request("What is today's date?")
+    assert "24 November 2026" in current_datetime_reply(fixed)
+    result = core.chat("What is today's date?", core.new_session())
+    assert "Local date and time:" in result
     assert not core.gateway.calls
 
 

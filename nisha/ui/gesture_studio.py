@@ -1,14 +1,15 @@
 """Opt-in, local hand tracking canvas for NISHA."""
 
-from math import cos, pi, sin
 import logging
+from itertools import pairwise
+from math import cos, pi, sin
 
-from PySide6.QtCore import QThread, Signal, Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QDialog,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -151,7 +152,7 @@ class DrawingCanvas(QWidget):
         painter.setPen(QPen(QColor("#29e0bf"), 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         width, height = self.width(), self.height()
         for stroke in self.strokes:
-            for first, second in zip(stroke, stroke[1:]):
+            for first, second in pairwise(stroke):
                 painter.drawLine(int(first[0] * width), int(first[1] * height),
                                  int(second[0] * width), int(second[1] * height))
 
@@ -331,7 +332,7 @@ class GestureStudioDialog(QDialog):
                         pyautogui.click()
                         self._last_click = now
                     self._was_pinching = drawing
-                except Exception:
+                except Exception:  # noqa: BLE001 - optional mouse backend failures disable this control
                     self.status.setText("Mouse control isn't available. Turn it off and try again.")
                     self.mouse_toggle.setChecked(False)
             else:

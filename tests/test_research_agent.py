@@ -57,3 +57,55 @@ def test_web_research_requires_configured_endpoint_without_network_request(core)
 
 def test_web_research_voice_route_uses_existing_action_dispatch(core):
     assert action_request("Nisha, web research for Windows Job Objects")
+
+
+def test_latest_news_question_uses_live_search_and_reports_search_time(core):
+    seen = []
+    core.research_agent.live_news = lambda query: seen.append(query) or {
+        "headlines": [{"title": "Market report", "source": "News", "url": "https://news.example.test/report", "published": "today"}],
+        "searched_at": "2026-11-24T12:34:00+05:30",
+    }
+    query = "What is the latest news in market?"
+    assert action_request(query)
+
+    result = core.chat(query, core.new_session())
+
+    assert seen == [query.rstrip("?")]
+    assert "searched 2026-11-24T12:34" in result
+    assert "https://news.example.test/report" in result
+    assert not core.gateway.calls
+
+
+def test_latest_news_network_failure_does_not_make_up_results(core):
+    core.research_agent.live_news = lambda _query: (_ for _ in ()).throw(
+        NishaError("I couldn't retrieve live news right now.")
+    )
+    result = core.chat("What is the latest news in market?", core.new_session())
+    assert "couldn't retrieve live news" in result
+    assert not core.gateway.calls
+
+
+def test_live_news_rss_fetches_only_bounded_public_headline_metadata(core):
+    requests = []
+    rss = """<?xml version="1.0"?><rss><channel><item>
+      <title>Market rises after policy update</title>
+      <link>https://news.example.org/story</link><source>Example News</source>
+      <pubDate>Tue, 24 Nov 2026 06:00:00 GMT</pubDate>
+    </item></channel></rss>"""
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, text=rss)
+
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    core.research_agent.client = client
+    result = core.research_agent.live_news("latest market news")
+
+    assert len(requests) == 1
+    assert requests[0].url.host == "news.google.com"
+    assert requests[0].url.params["q"] == "latest market news when:1d"
+    assert len(result["headlines"]) == 1
+    assert result["headlines"][0]["source"] == "Example News"
+    assert "24 Nov 2026" in result["headlines"][0]["published"]
+    assert "no conversation" in result["scope"]
+    client.close()

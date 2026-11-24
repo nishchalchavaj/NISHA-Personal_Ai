@@ -57,38 +57,39 @@ def test_background_queue_fifo_without_interrupting_chat(window, core, monkeypat
     monkeypatch.setattr(window, "busy", lambda: False)
     spoken = []
     monkeypatch.setattr(window, "start_speech", lambda text, mode: spoken.append((text, mode)))
-    monkeypatch.setattr(
-        window.visual_panel, "set_response", lambda *_: pytest.fail("Action receipt opened glass")
-    )
     window.show_action_results()
     assert len(window.action_results) == 1
     window.show_action_results()
     assert not window.action_results
-    assert spoken == [("Completed synthetic task.", "action")] * 2
+    assert spoken == [("I completed the requested action: Completed synthetic task.", "action")] * 2
+    assert window.visual_panel.question.text() == "Open synthetic two"
+    assert window.visual_panel.response.toPlainText() == "Completed synthetic task."
 
 
-def test_action_result_is_spoken_briefly_and_logged_fully_without_glass(window, monkeypatch):
+def test_action_result_is_spoken_briefly_and_shown_in_glass(window, monkeypatch):
     spoken = []
+    shown = []
     monkeypatch.setattr(window, "start_speech", lambda text, mode: spoken.append((text, mode)))
-    monkeypatch.setattr(
-        window.visual_panel, "set_response", lambda *_: pytest.fail("Action receipt opened glass")
-    )
+    monkeypatch.setattr(window.visual_panel, "set_response", lambda *args: shown.append(args))
     details = "Asked Explorer to open C: in the same window.\nAdditional details stay in chat."
     window.action_completed(window.session, "Go to local disk C", details)
-    assert spoken == [("Asked Explorer to open C: in the same window.", "action")]
+    assert spoken == [
+        ("I completed the requested action: Asked Explorer to open C: in the same window.", "action")
+    ]
+    assert shown[-1] == ("Go to local disk C", details)
     assert window.chat_panel.messages[-1]["content"] == details
 
 
-def test_status_notice_uses_chat_and_speech_not_glass(window, monkeypatch):
+def test_status_notice_uses_chat_speech_and_glass(window, monkeypatch):
     spoken = []
+    shown = []
     monkeypatch.setattr(window, "start_speech", lambda text, mode: spoken.append((text, mode)))
-    monkeypatch.setattr(
-        window.visual_panel, "set_response", lambda *_: pytest.fail("Notice opened glass")
-    )
+    monkeypatch.setattr(window.visual_panel, "set_response", lambda *args: shown.append(args))
     window.show_notice("Local connections saved. Open setup for details.")
     QApplication.processEvents()
     assert window.chat_panel.messages[-1]["content"] == "Local connections saved. Open setup for details."
-    assert spoken == [("Local connections saved.", "action")]
+    assert spoken == [("I completed the requested action: Local connections saved.", "action")]
+    assert shown[-1] == ("NISHA status", "Local connections saved. Open setup for details.")
 
 
 def test_background_queue_bound_cancel_and_ui_controls(window, monkeypatch):

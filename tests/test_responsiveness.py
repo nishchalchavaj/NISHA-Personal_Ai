@@ -14,13 +14,11 @@ from nisha.services import LocalServices
 @pytest.mark.parametrize(
     "text", ["Hello", "What's up, baby?", "Hi Nisha", "How are you?", "Thank you"]
 )
-def test_simple_smalltalk_needs_no_model_or_service(core, text):
+def test_simple_smalltalk_uses_the_local_conversation_model(core, text):
     core.settings.instant_smalltalk = True
-    core.gateway.fail = True
-    started = monotonic()
     assert core.chat(text, core.new_session())
-    assert not core.gateway.calls
-    assert monotonic() - started < 1
+    assert len(core.gateway.calls) == 1
+    assert core.gateway.calls[0][0] == "local_fast"
 
 
 @pytest.mark.parametrize(
@@ -68,7 +66,7 @@ def test_background_action_does_not_block_conversation_and_cancel_is_thread_loca
         assert entered.wait(2)
         try:
             reply = pool.submit(core.chat, "Hello", session).result(timeout=1)
-            assert reply and not core.gateway.calls
+            assert reply == "Hello Nishchal." and len(core.gateway.calls) == 1
             generated = pool.submit(core.chat, "What is gravity?", session).result(timeout=1)
             assert generated == "Hello Nishchal."
         finally:

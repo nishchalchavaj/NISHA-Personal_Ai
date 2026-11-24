@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from nisha.pc_control import PCControl
 from nisha.window_actions import Window
 
@@ -193,3 +195,23 @@ def test_spotify_window_remains_findable_after_title_changes(monkeypatch):
     window = Window(7, 42, "Artist - Current Song")
     backend = FakeBackend(windows=[window])
     assert PCControl(backend)._window(backend, "spotify") == window
+
+
+def test_visual_coordinate_click_checks_dimensions_and_bounds(monkeypatch):
+    import sys
+
+    from nisha.errors import NishaError
+    from nisha.pc_control import UIABackend
+
+    clicks = []
+    pyautogui = SimpleNamespace(size=lambda: (100, 80), click=lambda **kwargs: clicks.append(kwargs))
+    monkeypatch.setitem(sys.modules, "pyautogui", pyautogui)
+    backend = object.__new__(UIABackend)
+    backend.click_point(50, 20, 100, 80)
+    assert clicks == [{"x": 50, "y": 20, "clicks": 1, "interval": 0}]
+
+    with pytest.raises(NishaError, match="size changed"):
+        backend.click_point(50, 20, 200, 80)
+    with pytest.raises(NishaError, match="outside"):
+        backend.click_point(100, 20, 100, 80)
+    assert len(clicks) == 1

@@ -3,6 +3,10 @@
 The following checks passed during this build. No real private data was sent to an external
 model. Live model checks used temporary synthetic conversation and memory data.
 
+The most recent front-page / three-display update is tracked in `NISHA_TEST_STATUS.md`.
+Its center-display choice and virtual desktop coordinate mapping are unit tested with
+simulated display geometries; no physical multi-monitor window move is claimed here.
+
 | Check | Result |
 | --- | --- |
 | Automated regression suite | 262 passed |

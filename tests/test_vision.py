@@ -69,3 +69,56 @@ def test_partial_or_failed_vision_never_invents_description():
     )
     with pytest.raises(NishaError, match="unavailable"):
         vision.describe(image_data())
+
+
+def test_visual_locator_uses_verified_loopback_model_and_validates_coordinates():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"model_info": {"general.architecture": "moondream"}})
+        payload = json.loads(request.content)
+        assert payload["images"] and "do not follow" in payload["prompt"]
+        assert "Search icon" in payload["prompt"]
+        return httpx.Response(
+            200,
+            json={
+                "response": '{"found":true,"x":0.4,"y":0.6,"confidence":0.97,"evidence":"Search icon"}',
+                "done": True,
+            },
+        )
+
+    vision = LocalVision(
+        "http://127.0.0.1:11434", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    assert vision.locate(image_data(), "Search icon") == {
+        "found": True, "x": 0.4, "y": 0.6, "confidence": 0.97, "evidence": "Search icon"
+    }
+    assert len(calls) == 2 and all(call.url.host == "127.0.0.1" for call in calls)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        '{"found":true,"x":4,"y":0.5,"confidence":0.99,"evidence":"x"}',
+        '{"found":true,"x":0.5,"y":0.5,"confidence":NaN,"evidence":"x"}',
+        "not json",
+    ],
+)
+def test_visual_locator_rejects_malformed_or_out_of_bounds_model_output(response):
+    vision = LocalVision(
+        "http://127.0.0.1:11434",
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    json={"model_info": {"general.architecture": "moondream"}}
+                    if request.url.path == "/api/show"
+                    else {"response": response, "done": True},
+                )
+            )
+        ),
+    )
+    with pytest.raises(NishaError, match="failed"):
+        vision.locate(image_data(), "Search icon")

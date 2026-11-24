@@ -59,6 +59,15 @@ def test_inbox_readonly_peek_exact_reply_context(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
+def test_unread_check_uses_unseen_search_and_peek_without_marking_read(tmp_path):
+    inbox = Inbox(email_bytes())
+    mailer = GmailTransport(tmp_path, imap_factory=lambda *args, **kwargs: inbox)
+    mailer.credentials = lambda: ("owner@gmail.com", "test-password")
+    assert mailer.recent_messages(unread_only=True)[0]["uid"] == "42"
+    assert ("search", None, "UNSEEN") in inbox.calls
+    assert ("fetch", b"42", "(BODY.PEEK[]<0.100000>)") in inbox.calls
+
+
 def test_ambiguous_reply_to_does_not_choose_recipient(tmp_path):
     inbox = Inbox(email_bytes("alex@example.org, second@example.org"))
     mailer = GmailTransport(tmp_path, imap_factory=lambda *args, **kwargs: inbox)

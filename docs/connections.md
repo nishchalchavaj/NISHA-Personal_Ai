@@ -125,7 +125,9 @@ conversation, say **“remember this as NAME”** to save the last actual action
 **“remember these actions as NAME”** to save the most recent supported actions (maximum 12).
 The saved steps are printed for review and can be edited in Ctrl+D. Existing routines
 are not silently overwritten. Steps are learned from actual folder/app/browser/device
-receipts, not guessed from conversation text. Arbitrary autonomous app planning remains future work.
+receipts, not guessed from conversation text. Direct chained commands can also route a
+user-specified sequence through supported app/browser controls; unsupported or failed steps
+stop the sequence. NISHA does not infer new steps or claim general autonomous app planning.
 
 ## Gmail context and replies
 
@@ -145,6 +147,10 @@ or load remote HTML images. Headers/plain text are bounded to 100KB per fetched 
 large messages may be incomplete. Inbox lists/selection are session-scoped in memory;
 displayed messages and drafts also enter local conversation/storage under the existing
 retention policy. Refreshing the list clears selection; selections expire after 30 minutes.
+**“Check new email”** searches unread messages only and still uses read-only selection and
+BODY.PEEK, so the messages remain unread. **“Draft replies for all”** prepares local review
+files for at most ten unread messages with an unambiguous reply address. The drafts are
+displayed in chat and saved together locally; they are not uploaded to Gmail Drafts or sent.
 Ambiguous/missing reply addresses and a different explicitly named recipient require clarification.
 Reply threading headers are bound to the one-use draft approval along with recipient/content.
 Account permissions/app-password eligibility still depend on Google; no real inbox or email
@@ -162,3 +168,9 @@ path bounds, research payload privacy and exact reply approval.
 Configuration/routines live in `data/connections.json` and response timestamps in
 `data/device-status.json`; include those files when backing up your setup. SQLite-only
 backups do not include these files or Windows Credential Manager credentials.
+
+Natural-language latest-news requests use Google News RSS for headline titles, publishers,
+publication times and source links. They send only the public search query; NISHA does not
+attach conversation history, memories or project files. The configurable SearXNG endpoint
+remains available for explicit web research and local comparisons.
+files for at most ten unread messages with an unambiguous reply address. The drafts are

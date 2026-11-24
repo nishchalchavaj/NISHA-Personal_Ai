@@ -1,4 +1,4 @@
-"""Movable, translucent left-side results card with native image/video display."""
+"""Movable, opaque left-side results card with native image/video display."""
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen, QPixmap
@@ -45,7 +45,7 @@ class VisualPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setWindowTitle("NISHA Results")
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
         self.resize(460, 390)
         self.assets = []
         self.index = 0
@@ -127,8 +127,8 @@ class VisualPanel(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         gradient = QLinearGradient(0, 0, self.width(), self.height())
-        gradient.setColorAt(0, QColor(20, 47, 52, 205))
-        gradient.setColorAt(1, QColor(8, 22, 29, 180))
+        gradient.setColorAt(0, QColor(20, 47, 52, 255))
+        gradient.setColorAt(1, QColor(8, 22, 29, 255))
         painter.setBrush(gradient)
         painter.setPen(QPen(QColor(100, 235, 213, 115), 1))
         painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 20, 20)

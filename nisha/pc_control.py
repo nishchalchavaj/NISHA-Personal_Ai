@@ -139,6 +139,47 @@ class UIABackend:
         except Exception as exc:
             raise NishaError("The app refused that control click.") from exc
 
+    def click_point(self, x, y, width, height):
+        """Click one validated point in the primary-screen coordinate space."""
+        try:
+            import pyautogui
+
+            current_width, current_height = pyautogui.size()
+            if (current_width, current_height) != (width, height):
+                raise NishaError("The screen size changed or coordinate mapping is uncertain; no click was sent.")
+            if not (0 <= x < width and 0 <= y < height):
+                raise NishaError("The requested screen point is outside the display.")
+            pyautogui.click(x=x, y=y, clicks=1, interval=0)
+        except NishaError:
+            raise
+        except Exception as exc:
+            raise NishaError("Windows did not accept the visual target click.") from exc
+
+    def click_virtual_point(self, x, y, bounds):
+        """Click one global desktop coordinate, including negative-origin monitors."""
+        import ctypes
+
+        left, top, width, height = bounds
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in (x, y, left, top, width, height)):
+            raise NishaError("The virtual desktop coordinate is invalid; no click was sent.")
+        if width < 1 or height < 1 or not (left <= x < left + width and top <= y < top + height):
+            raise NishaError("The requested point is outside the extended desktop.")
+        if os.name != "nt":
+            raise NishaError("Virtual desktop clicking is available on Windows only.")
+        user32 = ctypes.windll.user32
+        current = (
+            user32.GetSystemMetrics(76),
+            user32.GetSystemMetrics(77),
+            user32.GetSystemMetrics(78),
+            user32.GetSystemMetrics(79),
+        )
+        if current != (left, top, width, height):
+            raise NishaError("The display layout changed; no click was sent.")
+        if not user32.SetCursorPos(x, y):
+            raise NishaError("Windows could not move the pointer to that display.")
+        user32.mouse_event(0x0002, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
+        user32.mouse_event(0x0004, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTUP
+
     def drag(self, source, target):
         try:
             source.drag_mouse_input(dst=target, src=source, button="left")
@@ -171,6 +212,9 @@ class PCControl:
 
     def _backend(self):
         return self.backend or UIABackend()
+
+    def click_point(self, x, y, width, height):
+        self._backend().click_point(x, y, width, height)
 
     def _window(self, backend, app):
         key = normalize(app)

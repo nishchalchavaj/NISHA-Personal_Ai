@@ -144,6 +144,7 @@ class SpeechWorker(TurnWorker):
 class NishaWindow(DashboardWindow):
     def __init__(self, core, start_listener=True, background_enabled=None, on_demand=False):
         super().__init__()
+        self.closeRequested.connect(self.quit_application)
         self.core = core
         self.session_file = core.settings.data_dir / "desktop-session.txt"
         if self.session_file.exists():
@@ -171,7 +172,8 @@ class NishaWindow(DashboardWindow):
         self.exit_on_close = False
         self.tray = None
         self.voice_turn = False
-        self.speak_responses = False
+        # Typed and spoken requests receive the same spoken answer by default.
+        self.speak_responses = True
         self.current_user = ""
         self.current_reply = ""
         self.result_turn = None
@@ -242,10 +244,10 @@ class NishaWindow(DashboardWindow):
         self.input.textEdited.connect(lambda _: self.idle_checkins.activity())
         self.wall_widget.mic_label.clicked.connect(self.toggle_mute)
         self.wall_widget.chat_button.clicked.connect(self.toggle_conversation)
+        self.wall_widget.command_requested.connect(self.run_dashboard_command)
         self.bind_shortcut("Ctrl+J", self.toggle_conversation)
         self.bind_shortcut("Ctrl+Space", self.toggle_mute)
         self.bind_shortcut("Ctrl+N", self.new_conversation)
-        self.bind_shortcut("Ctrl+Shift+S", self.toggle_speech)
         self.bind_shortcut("Ctrl+G", self.setup_gmail)
         self.bind_shortcut("Ctrl+E", self.review_email)
         self.bind_shortcut("Ctrl+L", self.learning_dialog)
@@ -268,6 +270,13 @@ class NishaWindow(DashboardWindow):
         )
         QTimer.singleShot(2000, self.poll_devices)
         self.wall_widget.email_button.clicked.connect(self.review_email)
+        self.wall_widget.nav_bar.requested.connect(self.navigate_frontpage)
+        self.wall_widget.activity_feed.cancel_requested.connect(self.cancel_queued_actions)
+        self._populate_settings_menu()
+        self.wall_widget.nav_bar.buttons["overview"].setChecked(True)
+        self.wall_widget.nav_bar.buttons["mute"].setChecked(self.muted)
+        self.refresh_dashboard()
+        self.set_state("Muted" if self.muted else "Waiting for NISHA")
         self.input.setToolTip("Enter to send · /remember KEY=TEXT · /use local_smart · /new")
         _, history = core.store.history(self.session)
         if history:
@@ -328,6 +337,7 @@ class NishaWindow(DashboardWindow):
             return
         self.muted = not self.muted
         self.wall_widget.mic_label.set_muted(self.muted)
+        self.wall_widget.nav_bar.buttons["mute"].setChecked(self.muted)
         if self.tray:
             self.mute_action.setChecked(self.muted)
             self.tray.setToolTip(
@@ -347,6 +357,7 @@ class NishaWindow(DashboardWindow):
                 if self.voice_awake and not self.in_background
                 else "Waiting for NISHA"
             )
+        self.refresh_dashboard()
 
     def listener_state(self, state):
         if not self.busy() and not self.muted and not self.closing:
@@ -448,6 +459,10 @@ class NishaWindow(DashboardWindow):
             QTimer.singleShot(100, self.acknowledge_wake)
             return
         self.pending_wake_ack = False
+        if self.acknowledgment_user == "Hey NISHA":
+            # A plain wake is a conversational greeting, not a fixed canned turn.
+            self.start_turn("Hey", voice=self.spoken_wake_enabled)
+            return
         self.chat_panel.begin_turn()
         self.result_turn = False
         self.current_user, self.current_reply = self.acknowledgment_user, self.acknowledgment_reply
@@ -459,6 +474,8 @@ class NishaWindow(DashboardWindow):
     def bring_forward(self):
         if self.closing:
             return
+        if self.compact_mode:
+            self.toggle_compact_mode()
         self.in_background = False
         self.idle_checkins.activity()
         self.showNormal()
@@ -698,11 +715,12 @@ class NishaWindow(DashboardWindow):
             self.result_turn if self.result_turn is not None else uses_results(self.current_user)
         )
         self.chat_panel.record(self.current_user, self.current_reply, results)
+        self.wall_widget.activity_feed.set_turn(
+            self.current_user, self.current_reply, self.turn_generation
+        )
         self.wall_widget.set_conversation(
             self.current_user,
-            "The result is in the glass panel."
-            if results and self.current_reply
-            else self.current_reply,
+            self.current_reply,
         )
         if results and not self.in_background and not self.closing and not self.results_dismissed:
             self.visual_panel.set_response(self.current_user, self.current_reply)
@@ -712,6 +730,7 @@ class NishaWindow(DashboardWindow):
 
     def set_state(self, state):
         self.table_status.setText("● " + state)
+        self.wall_widget.set_runtime_state(state)
         orb_state = {
             "Listening": "listening",
             "Transcribing": "thinking",
@@ -728,13 +747,177 @@ class NishaWindow(DashboardWindow):
         )
 
     def toggle_speech(self):
-        self.speak_responses = not self.speak_responses
-        self.table_status.setText("● Speech " + ("on" if self.speak_responses else "off"))
+        # Kept for compatibility with older callers; speech is mandatory.
+        self.speak_responses = True
+        self.table_status.setText("● Spoken replies on")
+
+    def _populate_settings_menu(self):
+        menu = self.wall_widget.nav_bar.settings_menu
+        menu.addAction("Connections, devices & projects", self.setup_connections)
+        menu.addAction("Preferences, memories & learning", self.learning_dialog)
+        menu.addAction("Voice samples", self.voice_samples)
+        menu.addAction("Gmail account setup", self.setup_gmail)
+        menu.addAction("External model settings", self.setup_worker)
+        menu.addAction("External task settings", self.external_task_dialog)
+        menu.addAction("Gesture studio", self.open_gesture_studio)
+        menu.addSeparator()
+        menu.addAction("Keyboard shortcuts", self.show_shortcuts)
+
+    def navigate_frontpage(self, destination):
+        if self.closing:
+            return
+        self.bring_forward()
+        button = self.wall_widget.nav_bar.buttons.get(destination)
+        if button and button.isCheckable():
+            button.setChecked(True)
+        if destination == "overview":
+            self.wall_widget.activity_feed.set_filter("all")
+            self.refresh_dashboard()
+            return
+        if destination == "tasks":
+            self.wall_widget.activity_feed.set_filter("tasks")
+            self.refresh_dashboard()
+            return
+        if destination == "conversation":
+            self.wall_widget.activity_feed.set_filter("conversation")
+            if not self.chat_panel.isVisible():
+                self.chat_panel.open()
+                self.wall_widget.set_chat_open(True)
+            return
+        actions = {
+            "new": self.new_conversation,
+            "mute": self.toggle_mute,
+            "devices": self.setup_connections,
+            "learning": self.learning_dialog,
+            "tools": self.show_tool_catalog,
+            "voice": self.voice_samples,
+            "media": self.choose_media,
+            "email": self.review_email if self.core.store.pending_email(self.session) else self.setup_gmail,
+        }
+        callback = actions.get(destination)
+        if callback:
+            callback()
+
+    def refresh_dashboard(self):
+        """Refresh cards from actual local configuration and current queue state."""
+        profile = self.core.settings.models.get(self.alias)
+        local_models = [
+            name for name, configured in self.core.settings.models.items()
+            if configured.local
+        ]
+        active = "local" if profile and profile.local else "separate task profile"
+        state = "Muted" if self.muted else "Listening" if self.listener else "Voice idle"
+        self.wall_widget.core_label.setText(
+            f"AI CORE\nSelected model  {self.alias}\n"
+            f"Model mode  {active}\nVoice input  {state}\n"
+            f"Action queue  {len(self.action_queue)} waiting"
+        )
+        self.wall_widget.models_label.setText(
+            f"SELECTED  {self.alias}\n"
+            f"Local profiles  {', '.join(local_models) or 'none configured'}\n"
+            f"Configured profiles  {len(self.core.settings.models)}"
+        )
+        memories = self.core.memory.memories()
+        sources = self.core.knowledge.sources()
+        routines = self.core.connections.load().routines
+        self.wall_widget.knowledge_label.setText(
+            f"MEMORY & ROUTINES\nSaved memories: {len(memories)}\n"
+            f"Knowledge sources: {len(sources)}\nSaved routines: {len(routines)}"
+        )
+        running = getattr(self, "active_action_text", "")
+        queued = [item[2] for item in self.action_queue]
+        task_lines = ["TASK QUEUE"]
+        task_lines.append(f"Running: {running}" if running else "Running: none")
+        task_lines.append(f"Waiting: {len(queued)}")
+        task_lines.extend(f"• {command}" for command in queued[:5])
+        if not running and not queued:
+            task_lines.append("No pending actions")
+        self.wall_widget.tasks_label.setText("\n".join(task_lines))
+
+    def run_dashboard_command(self, command):
+        if self.closing:
+            return
+        self.input.setText(command)
+        self.input.setFocus()
+        self.submit()
+
+    def cancel_queued_actions(self):
+        queued = list(self.action_queue)
+        self.action_queue.clear()
+        for _session, _alias, command, _history in queued:
+            self.wall_widget.activity_feed.set_task(command, "CANCELLED", "Cancelled by you.")
+        if self.action_job:
+            self.wall_widget.activity_feed.set_task(
+                getattr(self, "active_action_text", "Current task"),
+                "STOPPING",
+                "Cancellation requested; an action already completed may not be reversible.",
+            )
+            self.action_job.requestInterruption()
+            self.core.terminal.stop()
+        summary = (
+            f"I cancelled {len(queued)} queued task{'s' if len(queued) != 1 else ''}. "
+            + ("I asked the running task to stop. " if self.action_job else "")
+            + "A task that already completed cannot be undone."
+        )
+        self.chat_panel.record_background("", summary)
+        self.wall_widget.activity_feed.add_event("Task cancellation", summary)
+        self.wall_widget.set_conversation("Task queue", summary)
+        self.action_results.append(("cancel queued actions", summary))
+        self.refresh_dashboard()
+        self.wall_widget.activity_feed.set_filter("tasks")
+        QTimer.singleShot(0, self.show_action_results)
+
+    def show_tool_catalog(self):
+        from nisha.tools import ToolService
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("NISHA · Registered tools")
+        dialog.resize(660, 520)
+        layout = QVBoxLayout(dialog)
+        intro = QLabel(
+            "These are the tools currently registered with NISHA. Sensitive tools require a separate approval; this catalog does not run them."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        catalog = QListWidget(dialog)
+        for tool in ToolService.catalog():
+            approval = "approval required" if tool["requires_confirmation"] else "no confirmation"
+            catalog.addItem(f"{tool['name']}  ·  {tool['risk']}  ·  {approval}\n{tool['description']}")
+        layout.addWidget(catalog)
+        close = QPushButton("Close", dialog)
+        close.clicked.connect(dialog.accept)
+        layout.addWidget(close)
+        dialog.exec()
+
+    def show_shortcuts(self):
+        shortcuts = (
+            "Ctrl+J  Show or hide conversation\n"
+            "Ctrl+N  Start a new conversation\n"
+            "Ctrl+Space  Mute or unmute microphone input\n"
+            "Ctrl+D  Connections, devices and projects\n"
+            "Ctrl+L  Preferences, memories and learning\n"
+            "Ctrl+R  Voice samples\n"
+            "Ctrl+G  Gmail setup\n"
+            "Ctrl+E  Review email\n"
+            "Ctrl+I  Show a local image or video\n"
+            "Ctrl+K  External model settings\n"
+            "Ctrl+T  External task settings\n"
+            "Ctrl+Shift+G  Gesture studio\n"
+            "Ctrl+H  Hide NISHA to the tray\n"
+            "Ctrl+Q  Quit NISHA"
+        )
+        from PySide6.QtWidgets import QMessageBox
+
+        QMessageBox.information(self, "NISHA keyboard shortcuts", shortcuts)
 
     def new_conversation(self, force=False):
         if (self.busy() and not force) or self.closing:
             return
         self.pending_voice = None
+        for _session, _alias, command, _history in self.action_queue:
+            self.wall_widget.activity_feed.set_task(
+                command, "CANCELLED", "Removed when the new conversation started."
+            )
         self.action_queue.clear()
         self.action_results.clear()
         self.pending_typed.clear()
@@ -758,8 +941,7 @@ class NishaWindow(DashboardWindow):
         self.result_turn = None
         self.idle_checkins.activity()
         self.input.clear()
-        self.wall_widget.conversation_label.clear()
-        self.wall_widget.content_label.clear()
+        self.wall_widget.set_conversation("", "")
         self.wall_widget.email_button.hide()
         self.visual_panel.dismiss()
         self.visual_panel.clear()
@@ -768,6 +950,8 @@ class NishaWindow(DashboardWindow):
         if self.listener:
             self.listener.engine.wait_for_wake()
         self.set_state("Muted" if self.muted else "Waiting for NISHA")
+        self.wall_widget.activity_feed.add_event("Conversation", "Started a new local conversation.")
+        self.refresh_dashboard()
 
     def submit(self):
         text = self.control_text(self.input.text().strip())
@@ -829,6 +1013,7 @@ class NishaWindow(DashboardWindow):
                 self.alias = alias
                 self.current_user, self.current_reply = text, "Local model: " + alias
             self.render()
+            self.start_speech(self.current_reply, "reply")
             return
         if text.startswith("/remember "):
             self.chat_panel.begin_turn()
@@ -843,10 +1028,12 @@ class NishaWindow(DashboardWindow):
                 reply = str(exc)
             self.current_user, self.current_reply = text, reply
             self.render()
+            self.start_speech(reply, "reply")
             return
         self.start_turn(text)
 
     def start_turn(self, text, voice=False, uncertain=False, assistant_prompt=None):
+        from nisha.responsiveness import action_request
         from nisha.ui.presentation import uses_results
 
         if self.start_camera_vision(text, voice=voice):
@@ -857,7 +1044,9 @@ class NishaWindow(DashboardWindow):
         self.voice_awake = True
         self.last_conversation_activity = self.conversation_clock()
         self.turn_generation += 1
-        self.result_turn = not uncertain and uses_results(text, previous=self.result_turn)
+        self.result_turn = not uncertain and (
+            uses_results(text, previous=self.result_turn) or action_request(text)
+        )
         self.chat_panel.begin_turn()
         self.results_dismissed = False
         self.invalidate_visuals()
@@ -978,10 +1167,7 @@ class NishaWindow(DashboardWindow):
         self.current_reply = answer + "\n\nOne snapshot analyzed locally; no video was recorded."
         self.core.store.exchange(session, self.current_user, self.current_reply, cloud_allowed=False)
         self.render()
-        if self.voice_turn and not self.muted:
-            self.start_speech(self.current_reply, "camera")
-        elif self.listener and not self.muted:
-            self.listener.engine.resume(follow_up=True)
+        self.start_speech(self.current_reply, "camera")
 
     def append_chunk(self, text):
         self.current_reply += text
@@ -1221,6 +1407,7 @@ class NishaWindow(DashboardWindow):
             self.results_dismissed = False
             self.core.store.exchange(self.session, text, reply, cloud_allowed=False)
             self.render()
+            self.start_speech(reply, "action")
             return True
         if normalized in {"learn from my data", "add knowledge", "open learning", "/learn"}:
             self.learning_dialog()
@@ -1233,12 +1420,20 @@ class NishaWindow(DashboardWindow):
             return True
         if normalized in {"hide visuals", "close visuals", "close image", "hide image"}:
             self.visual_panel.dismiss()
+            reply = "I closed the results panel."
+            self.chat_panel.record_background(text, reply)
+            self.wall_widget.set_conversation(text, reply)
+            self.start_speech(reply, "action")
             return True
         if normalized.startswith("/show "):
             asset = self.media_service.local_file(text[len("/show ") :].strip().strip('"'))
             if asset:
                 self.invalidate_visuals()
                 self.present_assets([asset], self.load_visual_image)
+                reply = f"I opened {asset.title} in the results panel."
+                self.chat_panel.record_background(text, reply)
+                self.wall_widget.set_conversation(text, reply)
+                self.start_speech(reply, "action")
             else:
                 self.show_notice("Select an existing image or video with Ctrl+I.")
             return True
@@ -1262,15 +1457,7 @@ class NishaWindow(DashboardWindow):
             return False
         normalized = text.casefold().strip(" .!?")
         if normalized in {"cancel background tasks", "nisha stop", "emergency stop"}:
-            self.action_queue.clear()
-            if self.action_job:
-                self.action_job.requestInterruption()
-            terminal_status = self.core.terminal.stop()
-            self.chat_panel.record_background(
-                text,
-                "Stopping active Sandbox work and cancelling queued actions. "
-                "Already completed actions are not undone. " + terminal_status["status"],
-            )
+            self.cancel_queued_actions()
             return True
         if not action_request(text) and not self.core.automation.matches_trigger(text):
             return False
@@ -1278,10 +1465,14 @@ class NishaWindow(DashboardWindow):
             self.chat_panel.record_background(
                 text, "The action queue is full. Wait for an action to finish."
             )
+            self.wall_widget.activity_feed.set_task(text, "REJECTED", "The eight-item queue is full.")
             return True
         _, history = self.core.store.history(self.session)
         self.action_queue.append((self.session, self.alias, text, history))
+        self.wall_widget.activity_feed.set_task(text, "QUEUED")
         self.chat_panel.record_background(text, "Queued.")
+        self.visual_panel.set_response(text, "Queued and waiting to run.")
+        self.refresh_dashboard()
         if not self.busy():
             self.set_state("Working in background")
         self.start_next_action()
@@ -1298,6 +1489,11 @@ class NishaWindow(DashboardWindow):
             return
         job = ActionJob(self.core, session, alias, text, history)
         self.action_job = job
+        self.active_action_text = text
+        self.wall_widget.activity_feed.set_task(text, "RUNNING")
+        self.refresh_dashboard()
+        self.bring_forward()
+        self.visual_panel.set_response(text, "Working on this request…")
         job.done.connect(lambda reply: self.action_completed(session, text, reply))
         job.failed.connect(
             lambda error: self.action_completed(session, text, "Action failed: " + error)
@@ -1309,24 +1505,33 @@ class NishaWindow(DashboardWindow):
         if self.closing or session != self.session:
             return
         self.chat_panel.record_background(text, reply)
+        self.wall_widget.activity_feed.set_task(
+            text,
+            "FAILED" if reply.casefold().startswith("action failed:") else "COMPLETE",
+            reply,
+        )
         self.action_results.append((text, reply))
+        self.results_dismissed = False
+        self.wall_widget.set_conversation(text, reply)
+        self.visual_panel.set_response(text, reply)
         self.wall_widget.email_button.setVisible(bool(self.core.store.pending_email(self.session)))
         self.show_action_results()
 
     def action_finished(self):
         self.action_job = None
+        self.active_action_text = ""
+        self.refresh_dashboard()
         self.start_next_action()
 
     def show_action_results(self):
         if self.busy() or self.closing or not self.action_results:
             return
-        if self.in_background or self.muted or self.core.interaction.quiet:
-            self.action_results.clear()  # Full receipts are already in the chat log.
-            return
+        if self.in_background:
+            self.bring_forward()
         from nisha.ui.action_reports import spoken_action_report
 
-        _, reply = self.action_results.pop(0)
-        self.start_speech(spoken_action_report(reply), "action")
+        command, reply = self.action_results.pop(0)
+        self.start_speech(spoken_action_report(reply, command), "action")
 
     def invalidate_visuals(self):
         self.visual_generation += 1
@@ -1334,7 +1539,12 @@ class NishaWindow(DashboardWindow):
     def show_notice(self, text):
         if not self.in_background and not self.closing:
             self.chat_panel.record_background("", text)
+            self.wall_widget.activity_feed.add_event("NISHA", text)
             self.action_results.append(("", text))
+            self.results_dismissed = False
+            self.wall_widget.set_conversation("NISHA status", text)
+            self.visual_panel.set_response("NISHA status", text)
+            self.refresh_dashboard()
             QTimer.singleShot(0, self.show_action_results)
 
     def toggle_conversation(self):
@@ -1429,7 +1639,12 @@ class NishaWindow(DashboardWindow):
             self.render()
 
     def start_speech(self, text, mode):
-        if self.busy() or self.closing or self.muted or self.in_background:
+        if self.busy() or self.closing:
+            return
+        if mode == "action":
+            if self.in_background:
+                self.bring_forward()
+        elif self.in_background:
             return
         if self.listener:
             self.listener.engine.pause()
@@ -1702,7 +1917,7 @@ class NishaWindow(DashboardWindow):
         job = DevicePollJob(self.core.devices)
         job.done.connect(
             lambda status: (
-                self.wall_widget.devices_label.setText(status.split("\n", 1)[0]),
+                self.wall_widget.devices_label.setText(status[:500]),
                 self.wall_widget.devices_label.setToolTip(status + "\nCtrl+D · setup"),
             )
         )
